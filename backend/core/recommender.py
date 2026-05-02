@@ -197,6 +197,16 @@ class RecommendationEngine:
             raw = json.load(f)
             self.movie_idx_to_id = {v: int(k) for k, v in raw.items()}
 
+        # ── Poster map (movieId → TMDb poster URL) ────────────────────────────
+        poster_path = os.path.join(_DATA_DIR, "poster_map.json")
+        if os.path.exists(poster_path):
+            with open(poster_path) as f:
+                self.poster_map: dict = {int(k): v for k, v in json.load(f).items()}
+            print(f"  ✓ Poster map loaded ({len(self.poster_map):,} entries)", flush=True)
+        else:
+            self.poster_map = {}
+            print("  ⚠ poster_map.json not found — run ml/scripts/fetch_posters.py", flush=True)
+
         # ── New users (cold-start) ─────────────────────────────────────────────
         self._new_users_path = os.path.join(_DATA_DIR, "new_users.json")
         self._load_new_users()
@@ -365,14 +375,16 @@ class RecommendationEngine:
                 meta.get("genres", ""),
             )
 
+            movie_id = meta.get("movieId")
             results.append({
                 "rank"           : rank + 1,
                 "movie_idx"      : item_idx,
-                "movieId"        : meta.get("movieId"),
+                "movieId"        : movie_id,
                 "title"          : meta.get("title", "Unknown"),
                 "genres"         : meta.get("genres", ""),
                 "avg_rating"     : meta.get("avg_rating"),
                 "popularity"     : meta.get("popularity"),
+                "poster_url"     : self.poster_map.get(movie_id),   # None if not fetched yet
                 "embedding_sim"  : round(emb_sim, 4),
                 "ranking_score"  : round(rank_score, 4),
                 "why_recommended": f"Matches your taste in {top_genre}" if top_genre

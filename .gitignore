@@ -17,6 +17,9 @@ build/
 # ── Raw dataset (too large for git — download from grouplens.org/datasets/movielens/25m) ──
 data/
 
+# ── Poster map (regenerate: python ml/scripts/fetch_posters.py) ──────────────
+ml/data/poster_map.json
+
 # ── Processed ML data (regenerate: python ml/scripts/preprocess.py) ──────────
 ml/data/train.csv
 ml/data/val.csv
