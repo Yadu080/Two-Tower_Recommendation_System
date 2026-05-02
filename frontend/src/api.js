@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: 'http://localhost:8000' })
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+})
 
 export const fetchRecommendations = (userId, n = 10) =>
   api.get('/recommend', { params: { user_id: userId, n } }).then(r => r.data)

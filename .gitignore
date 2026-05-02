@@ -17,27 +17,16 @@ build/
 # ── Raw dataset (too large for git — download from grouplens.org/datasets/movielens/25m) ──
 data/
 
+# ── Training-only data (not needed for serving) ───────────────────────────────
+ml/data/train.csv
+ml/data/val.csv
+ml/data/item_genre_vecs.npy
+
 # ── Poster map (regenerate: python ml/scripts/fetch_posters.py) ──────────────
 ml/data/poster_map.json
 
-# ── Processed ML data (regenerate: python ml/scripts/preprocess.py) ──────────
-ml/data/train.csv
-ml/data/val.csv
-ml/data/user_features.csv
-ml/data/item_features.csv
-ml/data/user_id_map.json
-ml/data/movie_id_map.json
-ml/data/item_genre_vecs.npy
-
-# ── Item embeddings & FAISS indices (regenerate: generate_embeddings.py + build_faiss_index.py) ──
-ml/embeddings/*.npy
+# ── FAISS indices (numpy retrieval used instead — see recommender.py) ─────────
 ml/embeddings/*.index
-ml/embeddings/item_meta.csv
-
-# ── Trained model weights (regenerate: train_two_tower.py + train_ranker.py) ──
-ml/models/*.pt
-ml/models/*.joblib
-ml/models/*.txt
 
 # ── Frontend build artifacts ──────────────────────────────────────────────────
 frontend/node_modules/
