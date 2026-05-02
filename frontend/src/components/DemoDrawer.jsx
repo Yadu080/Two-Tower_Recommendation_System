@@ -8,12 +8,19 @@ export default function DemoDrawer({ onSelect, onClose }) {
 
   useEffect(() => {
     fetchUsers(30)
-      .then(d => { setUsers(d.users); setLoading(false) })
+      .then(d => {
+        // normalise: backend may return objects {id,name,is_new} or plain integers
+        const normalised = (d.users ?? []).map(u =>
+          typeof u === 'object' ? u : { id: u, name: `User ${u}`, is_new: false }
+        )
+        setUsers(normalised)
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
   }, [])
 
   const existing = users.filter(u => !u.is_new)
-  const custom   = users.filter(u => u.is_new)
+  const custom   = users.filter(u =>  u.is_new)
 
   return (
     <AnimatePresence>
