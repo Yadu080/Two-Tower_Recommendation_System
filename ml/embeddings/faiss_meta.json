@@ -1,0 +1,8 @@
+{
+  "n_items": 10523,
+  "dim": 128,
+  "n_clusters": 102,
+  "n_probe": 10,
+  "flat_path": "/Users/yadunandan/MY_PROJECTSIMP/recom/ml/scripts/../embeddings/faiss_flat.index",
+  "ivf_path": "/Users/yadunandan/MY_PROJECTSIMP/recom/ml/scripts/../embeddings/faiss_ivf.index"
+}

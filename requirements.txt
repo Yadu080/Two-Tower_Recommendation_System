@@ -1,0 +1,18 @@
+# Backend
+fastapi==0.111.0
+uvicorn==0.30.0
+python-dotenv==1.0.1
+pydantic==2.7.1
+
+# ML — Core
+torch==2.3.0
+numpy==1.26.4
+pandas==2.2.2
+scikit-learn==1.5.0
+joblib==1.4.2
+
+# ML — Retrieval (run build_faiss_index.py standalone — not imported with torch)
+faiss-cpu==1.8.0
+
+# Data
+requests==2.32.2
