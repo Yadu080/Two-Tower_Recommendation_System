@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import joblib
 import torch
+
+NEW_USER_BASE = 1_000_000  # new user IDs start here, well above MovieLens range
 # FAISS also conflicts with torch on macOS for the same reason.
 # At 10K items, numpy matmul (0.63ms/query) is fast enough for serving.
 # For production scale (100M+ items), run FAISS as a separate microservice.
@@ -103,6 +105,8 @@ class RecommendationEngine:
     def __init__(self):
         self._loaded = False
         self.user_cache = LRUCache(capacity=2048)
+        self.new_users: dict = {}          # new_user_id → {name, genres}
+        self._new_user_counter = 0
 
     def load(self):
         if self._loaded:
@@ -181,12 +185,21 @@ class RecommendationEngine:
             self.ranker_loaded = False
             print("  ⚠ Ranker not found — will use embedding similarity only")
 
+        # ── Genre vocabulary ───────────────────────────────────────────────────
+        with open(os.path.join(_DATA_DIR, "genre_vocab.json")) as f:
+            self.genre_vocab: dict = json.load(f)  # {"Action": 0, ...}
+        self.genre_names: list = sorted(self.genre_vocab, key=self.genre_vocab.get)
+
         # ── ID maps ────────────────────────────────────────────────────────────
         with open(os.path.join(_DATA_DIR, "user_id_map.json")) as f:
             self.user_id_map = {int(k): v for k, v in json.load(f).items()}
         with open(os.path.join(_DATA_DIR, "movie_id_map.json")) as f:
             raw = json.load(f)
             self.movie_idx_to_id = {v: int(k) for k, v in raw.items()}
+
+        # ── New users (cold-start) ─────────────────────────────────────────────
+        self._new_users_path = os.path.join(_DATA_DIR, "new_users.json")
+        self._load_new_users()
 
         self._loaded = True
         print("  ✓ Engine loaded", flush=True)
@@ -203,6 +216,63 @@ class RecommendationEngine:
 
         self.user_cache.put(user_idx, emb)
         return emb
+
+    def _load_new_users(self):
+        if not os.path.exists(self._new_users_path):
+            return
+        with open(self._new_users_path) as f:
+            stored = json.load(f)
+        for uid_str, profile in stored.items():
+            uid = int(uid_str)
+            self.new_users[uid] = profile
+            self._new_user_counter = max(self._new_user_counter,
+                                         uid - NEW_USER_BASE + 1)
+            self._register_new_user_features(uid, profile["genres"])
+
+    def _save_new_users(self):
+        with open(self._new_users_path, "w") as f:
+            json.dump({str(k): v for k, v in self.new_users.items()}, f, indent=2)
+
+    def _genre_embedding(self, genre_names: list) -> np.ndarray:
+        """Average embedding of items that belong to any of the selected genres."""
+        selected_idxs = [self.genre_vocab[g] for g in genre_names if g in self.genre_vocab]
+        if not selected_idxs:
+            return np.mean(self.item_embs, axis=0)
+        matching = [
+            idx for idx, feat in self.item_feat_map.items()
+            if any(feat["genre_vec"][gi] > 0 for gi in selected_idxs)
+        ]
+        if not matching:
+            return np.mean(self.item_embs, axis=0)
+        emb = np.mean(self.item_embs[matching[:2000]], axis=0)
+        emb /= (np.linalg.norm(emb) + 1e-9)
+        return emb.astype(np.float32)
+
+    def _register_new_user_features(self, user_id: int, genre_names: list):
+        """Populate user_feat_map and user_cache for a cold-start user."""
+        genre_pref = np.zeros(len(self.genre_names), dtype=np.float32)
+        for g in genre_names:
+            if g in self.genre_vocab:
+                genre_pref[self.genre_vocab[g]] = 1.0
+        norm = np.linalg.norm(genre_pref)
+        if norm > 0:
+            genre_pref /= norm
+        self.user_feat_map[user_id] = {
+            "avg_rating" : 3.5,
+            "num_ratings": 5,
+            "genre_pref" : genre_pref,
+        }
+        emb = self._genre_embedding(genre_names)
+        self.user_cache.put(user_id, emb)
+
+    def register_new_user(self, name: str, genre_names: list) -> int:
+        """Create a cold-start user profile from name + genre preferences."""
+        self._new_user_counter += 1
+        user_id = NEW_USER_BASE + self._new_user_counter
+        self.new_users[user_id] = {"name": name, "genres": genre_names}
+        self._register_new_user_features(user_id, genre_names)
+        self._save_new_users()
+        return user_id
 
     def _build_ranker_features(self, user_idx: int, item_idx: int,
                                 user_emb: np.ndarray) -> list:
@@ -235,7 +305,8 @@ class RecommendationEngine:
     def recommend(self, user_idx: int,
                   n_retrieve: int = 500,
                   n_return: int = 10,
-                  exclude_seen: Optional[set] = None) -> list:
+                  exclude_seen: Optional[set] = None,
+                  user_emb_override: Optional[np.ndarray] = None) -> list:
         """
         Full pipeline:
           1. user_idx → user_emb  (UserTower + LRU cache)
@@ -246,8 +317,9 @@ class RecommendationEngine:
         """
         t_start = time.perf_counter()
 
-        # Step 1 — user embedding
-        user_emb = self.get_user_embedding(user_idx)
+        # Step 1 — user embedding (override used for cold-start new users)
+        user_emb = user_emb_override if user_emb_override is not None \
+                   else self.get_user_embedding(user_idx)
 
         # Step 2 — numpy retrieval (cosine sim via matmul, items are L2-normalised)
         sims = self.item_embs @ user_emb                          # (num_items,)

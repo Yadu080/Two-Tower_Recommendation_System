@@ -2,8 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  font-family: system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
+@layer base {
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background-color: #141414;
+    color: #fff;
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+}
+
+@layer utilities {
+  .nf-input {
+    @apply w-full bg-[#333] border border-[#444] rounded px-4 py-4 text-white
+           placeholder-[#8c8c8c] focus:outline-none focus:border-white transition-colors text-base;
+  }
+
+  .nf-btn {
+    @apply bg-[#E50914] hover:bg-[#B81D24] text-white font-semibold
+           rounded px-6 py-4 transition-colors text-base tracking-wide;
+  }
+
+  .poster-bg {
+    background: linear-gradient(135deg, var(--c1) 0%, var(--c2) 100%);
+  }
 }

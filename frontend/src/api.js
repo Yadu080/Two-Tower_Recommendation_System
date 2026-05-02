@@ -11,5 +11,11 @@ export const logClick = (userId, movieIdx) =>
 export const fetchUsers = (n = 30) =>
   api.get('/users', { params: { n } }).then(r => r.data)
 
+export const fetchGenres = () =>
+  api.get('/genres').then(r => r.data)
+
+export const registerUser = (name, genres) =>
+  api.post('/users/register', { name, genres }).then(r => r.data)
+
 export const fetchHealth = () =>
   api.get('/health').then(r => r.data)

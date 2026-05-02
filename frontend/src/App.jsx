@@ -1,182 +1,242 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import MovieCard from './components/MovieCard'
-import SkeletonCard from './components/SkeletonCard'
-import DebugPanel from './components/DebugPanel'
-import { fetchRecommendations, fetchUsers, logClick } from './api'
+import LandingPage    from './components/LandingPage'
+import GenrePicker    from './components/GenrePicker'
+import MovieCard      from './components/MovieCard'
+import SkeletonCard   from './components/SkeletonCard'
+import DemoDrawer     from './components/DemoDrawer'
+import { fetchRecommendations, registerUser, logClick } from './api'
+
+// ── view state machine ─────────────────────────────────────────────────────
+//  landing → genres → recs
 
 export default function App() {
-  const [users, setUsers]             = useState([])
-  const [selectedUser, setSelectedUser] = useState(null)
-  const [recs, setRecs]               = useState([])
-  const [loading, setLoading]         = useState(false)
-  const [error, setError]             = useState(null)
-  const [showDebug, setShowDebug]     = useState(false)
-  const [cacheStats, setCacheStats]   = useState(null)
-  const [latencyMs, setLatencyMs]     = useState(null)
+  const [view, setView]             = useState('landing')
+  const [pendingName, setPendingName] = useState('')
+  const [currentUser, setCurrentUser] = useState(null)   // {id,name,genres,is_new}
+  const [recs, setRecs]             = useState([])
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState(null)
+  const [showDebug, setShowDebug]   = useState(false)
+  const [showDemo, setShowDemo]     = useState(false)
   const [clickedItems, setClickedItems] = useState(new Set())
 
-  // load sample users on mount
-  useEffect(() => {
-    fetchUsers(40)
-      .then(d => {
-        setUsers(d.users)
-        setSelectedUser(d.users[0])
-      })
-      .catch(() => setError('Backend not running. Start with: uvicorn backend.main:app --reload'))
-  }, [])
-
-  // fetch recommendations when user changes
+  // ── load recommendations for a given user id ────────────────────────────
   const loadRecs = useCallback(async (userId) => {
-    if (!userId) return
     setLoading(true)
     setError(null)
     setRecs([])
     try {
       const data = await fetchRecommendations(userId, 12)
       setRecs(data.results)
-      setCacheStats(data.cache_stats)
-      setLatencyMs(data.results[0]?.latency_ms ?? null)
     } catch (e) {
-      setError(e.response?.data?.detail ?? 'Failed to fetch recommendations')
+      setError(e.response?.data?.detail ?? 'Could not fetch recommendations. Is the backend running?')
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => {
-    if (selectedUser) loadRecs(selectedUser)
-  }, [selectedUser, loadRecs])
+  // ── Step 1: name entered on landing page ───────────────────────────────
+  const handleNameSubmit = (name) => {
+    setPendingName(name)
+    setView('genres')
+  }
 
+  // ── Step 2: genres chosen ─────────────────────────────────────────────
+  const handleGenresSubmit = async (genres) => {
+    try {
+      const data = await registerUser(pendingName, genres)
+      const user = { id: data.user_id, name: data.name, genres: data.genres, is_new: true }
+      setCurrentUser(user)
+      setClickedItems(new Set())
+      setView('recs')
+      loadRecs(user.id)
+    } catch (e) {
+      // fall through — GenrePicker shows loading, reset it
+      throw e
+    }
+  }
+
+  // ── Demo profile selected ──────────────────────────────────────────────
+  const handleDemoSelect = (user) => {
+    setCurrentUser(user)
+    setClickedItems(new Set())
+    setShowDemo(false)
+    setView('recs')
+    loadRecs(user.id)
+  }
+
+  // ── Card clicked (log + refresh) ───────────────────────────────────────
   const handleCardClick = async (movie) => {
     if (clickedItems.has(movie.movie_idx)) return
     setClickedItems(prev => new Set([...prev, movie.movie_idx]))
-    await logClick(selectedUser, movie.movie_idx).catch(() => {})
-    // refresh recommendations after click
-    loadRecs(selectedUser)
+    await logClick(currentUser.id, movie.movie_idx).catch(() => {})
+    loadRecs(currentUser.id)
   }
 
+  // ── Switch profile → back to landing ──────────────────────────────────
+  const handleSwitch = () => {
+    setView('landing')
+    setCurrentUser(null)
+    setRecs([])
+    setPendingName('')
+  }
+
+  // ──────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between sticky top-0 bg-gray-950/90 backdrop-blur z-10">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center text-sm font-bold">R</div>
-          <span className="font-bold text-lg text-white">RecomAI</span>
-          <span className="text-xs text-gray-500 hidden sm:block">Two-Tower · FAISS · LightGBM</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowDebug(v => !v)}
-            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-              showDebug
-                ? 'bg-purple-600/20 border-purple-500 text-purple-300'
-                : 'border-gray-700 text-gray-400 hover:border-gray-600'
-            }`}
-          >
-            {showDebug ? '⚙ Debug ON' : '⚙ Debug'}
-          </button>
-        </div>
-      </header>
+    <>
+      {/* Demo profiles drawer — available from any view */}
+      {showDemo && (
+        <DemoDrawer
+          onSelect={handleDemoSelect}
+          onClose={() => setShowDemo(false)}
+        />
+      )}
 
-      <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        {/* User selector */}
-        <section>
-          <h2 className="text-sm text-gray-500 uppercase tracking-wider mb-3">Select User</h2>
-          <div className="flex flex-wrap gap-2">
-            {users.map(uid => (
-              <button
-                key={uid}
-                onClick={() => setSelectedUser(uid)}
-                className={`text-xs px-3 py-1.5 rounded-full border transition-all ${
-                  selectedUser === uid
-                    ? 'bg-purple-600 border-purple-500 text-white'
-                    : 'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300'
-                }`}
-              >
-                User {uid}
-              </button>
-            ))}
-          </div>
-        </section>
+      <AnimatePresence mode="wait">
+        {/* ── LANDING ─────────────────────────────────────────────────── */}
+        {view === 'landing' && (
+          <motion.div key="landing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <LandingPage
+              onNameSubmit={handleNameSubmit}
+              onDemoClick={() => setShowDemo(true)}
+            />
+          </motion.div>
+        )}
 
-        {/* Debug panel */}
-        <DebugPanel cacheStats={cacheStats} latencyMs={latencyMs} visible={showDebug} />
+        {/* ── GENRE PICKER ────────────────────────────────────────────── */}
+        {view === 'genres' && (
+          <motion.div key="genres" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }}>
+            <GenrePicker
+              name={pendingName}
+              onComplete={handleGenresSubmit}
+              onBack={() => setView('landing')}
+            />
+          </motion.div>
+        )}
 
-        {/* Feed header */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-xl font-bold text-white">
-                {selectedUser ? `Recommendations for User ${selectedUser}` : 'Select a user'}
-              </h1>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {!loading && recs.length > 0
-                  ? `${recs.length} results · click any card to update recommendations`
-                  : 'Retrieval: FAISS top-500 → LightGBM rank → top-12'}
-              </p>
-            </div>
-            {!loading && recs.length > 0 && (
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                onClick={() => loadRecs(selectedUser)}
-                className="text-xs px-3 py-1.5 bg-gray-800 border border-gray-700
-                           rounded-lg text-gray-400 hover:text-white hover:border-gray-600 transition-colors"
-              >
-                ↺ Refresh
-              </motion.button>
-            )}
-          </div>
+        {/* ── RECOMMENDATIONS ─────────────────────────────────────────── */}
+        {view === 'recs' && (
+          <motion.div key="recs" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      className="min-h-screen" style={{ background: '#141414' }}>
 
-          {/* Error */}
-          <AnimatePresence>
-            {error && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="bg-red-950/50 border border-red-800 rounded-xl p-4 text-red-300 text-sm mb-4"
-              >
-                {error}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {loading
-              ? Array.from({ length: 12 }).map((_, i) => <SkeletonCard key={i} />)
-              : recs.map(movie => (
-                  <MovieCard
-                    key={movie.movie_idx}
-                    movie={movie}
-                    onClick={handleCardClick}
-                    showDebug={showDebug}
-                  />
-                ))
-            }
-          </div>
-        </section>
-
-        {/* How it works footer */}
-        <section className="border-t border-gray-800 pt-6">
-          <h3 className="text-xs text-gray-500 uppercase tracking-wider mb-3">How it works</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { step: '1', label: 'User Tower', desc: 'Maps user → 128-dim vector' },
-              { step: '2', label: 'FAISS ANN', desc: 'Retrieves top-500 similar items' },
-              { step: '3', label: 'LightGBM', desc: 'Re-ranks by rich features' },
-              { step: '4', label: 'Top-K Heap', desc: 'O(N log K) final selection' },
-            ].map(s => (
-              <div key={s.step} className="bg-gray-900 rounded-xl p-3 border border-gray-800">
-                <div className="text-purple-400 text-xs font-bold mb-1">Step {s.step}</div>
-                <div className="text-white text-sm font-medium">{s.label}</div>
-                <div className="text-gray-500 text-xs mt-0.5">{s.desc}</div>
+            {/* Netflix-style header */}
+            <header className="sticky top-0 z-30 px-6 md:px-12 py-3 flex items-center justify-between"
+                    style={{ background: 'linear-gradient(to bottom, rgba(20,20,20,1) 70%, transparent)' }}>
+              {/* Logo */}
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded bg-[#E50914] flex items-center justify-center font-bold text-white text-xs">R</div>
+                <span className="text-[#E50914] font-bold text-xl tracking-tight hidden sm:block">RECOMAI</span>
               </div>
-            ))}
-          </div>
-        </section>
-      </main>
-    </div>
+
+              {/* Right controls */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowDemo(true)}
+                  className="text-xs text-[#b3b3b3] hover:text-white transition-colors hidden sm:block"
+                >
+                  Demo profiles
+                </button>
+                <button
+                  onClick={() => setShowDebug(v => !v)}
+                  className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                    showDebug ? 'border-[#E50914] text-[#E50914]' : 'border-[#333] text-[#737373] hover:border-[#555]'
+                  }`}
+                >
+                  {showDebug ? '⚙ Debug' : '⚙'}
+                </button>
+
+                {/* Profile chip */}
+                <button
+                  onClick={handleSwitch}
+                  title="Switch profile"
+                  className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full hover:bg-white/5 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm"
+                       style={{ background: currentUser?.is_new ? '#E50914' : '#333' }}>
+                    {currentUser?.name?.[0]?.toUpperCase()}
+                  </div>
+                  <span className="text-sm text-white hidden sm:block">{currentUser?.name}</span>
+                </button>
+              </div>
+            </header>
+
+            <main className="px-6 md:px-12 pb-16 -mt-2">
+              {/* Section title */}
+              <div className="mb-6 flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">
+                    Top Picks for {currentUser?.name}
+                  </h2>
+                  {currentUser?.is_new && currentUser.genres?.length > 0 && (
+                    <p className="text-[#737373] text-sm mt-1">
+                      Based on: {currentUser.genres.join(', ')}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => loadRecs(currentUser.id)}
+                  className="text-xs text-[#737373] hover:text-white transition-colors flex items-center gap-1"
+                >
+                  ↺ Refresh
+                </button>
+              </div>
+
+              {/* Error */}
+              <AnimatePresence>
+                {error && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                              className="mb-6 p-4 rounded-lg text-sm text-red-300"
+                              style={{ background: 'rgba(127,29,29,0.3)', border: '1px solid rgba(153,27,27,0.5)' }}>
+                    {error}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Movie grid — poster aspect ratio */}
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+                {loading
+                  ? Array.from({ length: 12 }).map((_, i) => (
+                      <div key={i} className="rounded-md animate-pulse"
+                           style={{ aspectRatio: '2/3', background: '#2f2f2f' }} />
+                    ))
+                  : recs.map((movie, i) => (
+                      <motion.div
+                        key={movie.movie_idx}
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.04 }}
+                      >
+                        <MovieCard
+                          movie={movie}
+                          onClick={handleCardClick}
+                          showDebug={showDebug}
+                        />
+                      </motion.div>
+                    ))
+                }
+              </div>
+
+              {/* Clicked hint */}
+              {clickedItems.size > 0 && !loading && (
+                <p className="text-center text-[#737373] text-xs mt-6">
+                  {clickedItems.size} film{clickedItems.size > 1 ? 's' : ''} marked as seen · recommendations updated
+                </p>
+              )}
+
+              {/* Pipeline pills */}
+              <div className="mt-12 flex flex-wrap justify-center gap-2">
+                {['UserTower → 128-dim embedding', 'ANN top-500 retrieval', 'GBM re-rank (AUC 0.98)', 'O(N log K) heap top-12'].map(s => (
+                  <span key={s} className="text-xs px-3 py-1.5 rounded-full text-[#737373]"
+                        style={{ background: '#1f1f1f', border: '1px solid #2f2f2f' }}>
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </main>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   )
 }
