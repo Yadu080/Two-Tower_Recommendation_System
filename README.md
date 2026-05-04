@@ -56,33 +56,22 @@ The entire pipeline — from user embedding to ranked results — runs in under 
 
 ## Architecture
 
-```
-  React Frontend
-       │
-       │   GET /recommend?user_id=X
-       │
-       ▼
-  ┌──────────────────────────────────────────────────────┐
-  │                  FastAPI  ·  uvicorn                 │
-  │                                                      │
-  │   user_id ──► id map ──► UserTower (PyTorch)         │
-  │                               │                      │
-  │                          LRU Cache ◄── hit? serve    │
-  │                               │                      │
-  │                    numpy dot-product ANN             │
-  │                    item_embs @ user_emb              │
-  │                    top-500 candidates                │
-  │                               │                      │
-  │                    GBM Re-ranker (sklearn)           │
-  │                    8-feature vectors · predict_proba │
-  │                               │                      │
-  │                    Top-K · enrich · explain          │
-  └──────────────────────────────────────────────────────┘
-       │
-       │   JSON  →  poster + title + score + why
-       │
-       ▼
-  Movie card grid
+```mermaid
+flowchart TD
+    A[React Frontend\nUser picker · Movie cards · Click log] -->|HTTP GET /recommend| B
+
+    subgraph B[FastAPI Serving Layer]
+        direction TB
+        C[user_id → user_idx\nHash map O&lpar;1&rpar;]
+        --> D[UserTower\nPyTorch embedding · 128-dim]
+        --> E[LRU Cache\nOrderedDict · cap=2048 · O&lpar;1&rpar;]
+        --> F[Numpy ANN Retrieval\nitem_embs @ user_emb\nargpartition → top-500 · O&lpar;N&rpar;]
+        --> G[GBM Ranker\n8-feature vector per candidate\npredict_proba → score in 0–1]
+        --> H[Min-Heap Top-K\nheapq · O&lpar;N log K&rpar;]
+        --> I[Format + Explainability\ntitle · genres · why_recommended]
+    end
+
+    I -->|JSON| A
 ```
 
 ---
