@@ -34,7 +34,7 @@ The frontend mirrors the feel of Netflix — dark, minimal, and fast. A first-ti
 
 | Landing | Genre Picker | Recommendations |
 |:---:|:---:|:---:|
-| ![Landing](docs/screenshots/landing.png) | ![Genres](docs/screenshots/genres.png) | ![Recs](docs/screenshots/recs.png) |
+| ![Landing](data/screenshots/landing.png) | ![Genres](data/screenshots/genres.png) | ![Recs](data/screenshots/recs.png) |
 
 </div>
 
