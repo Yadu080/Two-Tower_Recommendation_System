@@ -53,6 +53,100 @@ Those 500 candidates are passed through a gradient-boosted classifier that score
 The entire pipeline — from user embedding to ranked results — runs in under **20 ms**.
 
 ---
+# Running RECOMAI Locally
+
+## Prerequisites
+- Python 3.11+
+- Node 18+
+- MovieLens 25M dataset — download from [grouplens.org/datasets/movielens/25m](https://grouplens.org/datasets/movielens/25m/), unzip into `data/`
+
+---
+
+## 1 — Clone the repo
+
+```bash
+git clone https://github.com/Yadu080/Two-Tower_Recommendation_System.git
+cd Two-Tower_Recommendation_System
+```
+
+## 2 — Install dependencies
+
+```bash
+# Python
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Frontend
+cd frontend && npm install && cd ..
+```
+
+## 3 — Train the models
+
+Run each script in order:
+
+```bash
+source venv/bin/activate
+
+python ml/scripts/preprocess.py
+python ml/scripts/train_two_tower.py
+python ml/scripts/generate_embeddings.py
+python ml/scripts/train_ranker.py
+python ml/scripts/evaluate.py
+```
+
+> Training takes ~15 min on Apple MPS or a GPU. CPU works too — just slower.
+
+## 4 — Fetch movie posters (optional)
+
+Create a `.env` file in the project root:
+
+```
+TMDB_API_KEY=your_key_here
+```
+
+Then run:
+
+```bash
+python ml/scripts/fetch_posters.py
+```
+
+> Skip this step and movie cards will show genre-coloured gradients instead of real posters.
+
+## 5 — Start the app
+
+Open two terminals:
+
+```bash
+# Terminal 1 — Backend
+source venv/bin/activate
+uvicorn backend.main:app --reload
+```
+
+```bash
+# Terminal 2 — Frontend
+cd frontend
+npm run dev
+```
+
+Open **http://localhost:5173** in your browser.
+
+---
+
+## Deploying
+
+### Backend → Render
+- Connect your GitHub repo on [render.com](https://render.com)
+- `render.yaml` is auto-detected
+- Add `TMDB_API_KEY` as an environment variable in the Render dashboard
+- Deploy — first build takes ~3–5 min
+
+### Frontend → Vercel
+- Import the repo on [vercel.com](https://vercel.com)
+- Set root directory to `frontend`
+- Add environment variable: `VITE_API_URL = https://your-render-service.onrender.com`
+- Deploy — done in ~1–2 min
+---
 
 ## Architecture
 
