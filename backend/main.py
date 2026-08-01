@@ -21,7 +21,7 @@ app = FastAPI(title="RecomAI API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # local dev — lock down to your domain in production
+    allow_origins=["https://two-tower-recommendation-system.vercel.app"],   # local dev — lock down to your domain in production
     allow_methods=["*"],
     allow_headers=["*"],
 )
