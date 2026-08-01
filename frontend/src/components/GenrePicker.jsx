@@ -28,6 +28,7 @@ export default function GenrePicker({ name, onComplete, onBack }) {
   const [allGenres, setAllGenres] = useState([])
   const [selected, setSelected]   = useState([])
   const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState(null)
 
   useEffect(() => {
     fetchGenres()
@@ -41,7 +42,13 @@ export default function GenrePicker({ name, onComplete, onBack }) {
   const handleDone = async () => {
     if (selected.length === 0) return
     setLoading(true)
-    await onComplete(selected)
+    setError(null)
+    try {
+      await onComplete(selected)
+    } catch (e) {
+      setError(e.response?.data?.detail ?? 'Could not create your profile. Please try again.')
+      setLoading(false)
+    }
   }
 
   return (
@@ -122,6 +129,11 @@ export default function GenrePicker({ name, onComplete, onBack }) {
             )
           })}
         </div>
+
+        {/* Error */}
+        {error && (
+          <p className="text-center text-red-400 text-sm mb-4">{error}</p>
+        )}
 
         {/* CTA */}
         <div className="flex justify-center">
