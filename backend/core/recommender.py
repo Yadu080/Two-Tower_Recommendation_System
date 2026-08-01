@@ -370,9 +370,9 @@ class RecommendationEngine:
             itf = self.item_feat_map.get(item_idx, {})
             uf  = self.user_feat_map.get(user_idx, {})
             top_genre = _top_matching_genre(
-                np.array(uf.get("genre_pref", np.zeros(19))),
-                np.array(itf.get("genre_vec", np.zeros(19))),
-                meta.get("genres", ""),
+                np.array(uf.get("genre_pref", np.zeros(len(self.genre_names)))),
+                np.array(itf.get("genre_vec", np.zeros(len(self.genre_names)))),
+                self.genre_names,
             )
 
             movie_id = meta.get("movieId")
@@ -397,17 +397,16 @@ class RecommendationEngine:
 
 def _top_matching_genre(user_pref: np.ndarray,
                         item_genre: np.ndarray,
-                        genres_str: str) -> str:
+                        genre_names: list) -> str:
     """Return the genre with highest user preference × item presence."""
-    genre_list = genres_str.split("|") if genres_str else []
-    if not genre_list or len(user_pref) == 0:
+    if len(user_pref) == 0 or len(item_genre) == 0:
         return ""
     # multiply element-wise: high only if user likes it AND item has it
     scores = user_pref * item_genre
     best_idx = int(np.argmax(scores))
-    if best_idx < len(genre_list) and scores[best_idx] > 0:
-        return genre_list[0]   # return primary genre as fallback
-    return genre_list[0] if genre_list else ""
+    if scores[best_idx] > 0:
+        return genre_names[best_idx]
+    return ""
 
 
 # module-level singleton — imported by FastAPI

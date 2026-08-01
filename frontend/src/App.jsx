@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import LandingPage    from './components/LandingPage'
 import GenrePicker    from './components/GenrePicker'
 import MovieCard      from './components/MovieCard'
-import SkeletonCard   from './components/SkeletonCard'
 import DemoDrawer     from './components/DemoDrawer'
 import { fetchRecommendations, registerUser, logClick } from './api'
 
@@ -44,17 +43,13 @@ export default function App() {
 
   // ── Step 2: genres chosen ─────────────────────────────────────────────
   const handleGenresSubmit = async (genres) => {
-    try {
-      const data = await registerUser(pendingName, genres)
-      const user = { id: data.user_id, name: data.name, genres: data.genres, is_new: true }
-      setCurrentUser(user)
-      setClickedItems(new Set())
-      setView('recs')
-      loadRecs(user.id)
-    } catch (e) {
-      // fall through — GenrePicker shows loading, reset it
-      throw e
-    }
+    // errors propagate to GenrePicker, which shows them and resets its loading state
+    const data = await registerUser(pendingName, genres)
+    const user = { id: data.user_id, name: data.name, genres: data.genres, is_new: true }
+    setCurrentUser(user)
+    setClickedItems(new Set())
+    setView('recs')
+    loadRecs(user.id)
   }
 
   // ── Demo profile selected ──────────────────────────────────────────────
