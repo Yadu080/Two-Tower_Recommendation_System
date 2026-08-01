@@ -30,7 +30,34 @@
            rounded px-6 py-4 transition-colors text-base tracking-wide;
   }
 
+  /* Billboard "Play" / "More Info" buttons */
+  .nf-play {
+    @apply bg-white hover:bg-white/80 text-black font-semibold rounded
+           px-6 py-2.5 transition-colors flex items-center gap-2;
+  }
+
+  .nf-info {
+    @apply bg-[rgba(109,109,110,0.7)] hover:bg-[rgba(109,109,110,0.4)] text-white font-semibold
+           rounded px-6 py-2.5 transition-colors flex items-center gap-2;
+  }
+
+  /* Horizontal carousel track — hides the scrollbar but keeps scrolling */
+  .nf-row-track {
+    @apply flex gap-1 overflow-x-auto overflow-y-visible scroll-smooth;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .nf-row-track::-webkit-scrollbar { display: none; }
+
   .poster-bg {
     background: linear-gradient(135deg, var(--c1) 0%, var(--c2) 100%);
+  }
+
+  /* Big translucent numeral used by the "Top 10" row */
+  .nf-rank-numeral {
+    -webkit-text-stroke: 3px #666;
+    color: #141414;
+    font-weight: 900;
+    line-height: 0.8;
   }
 }
