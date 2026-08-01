@@ -37,7 +37,9 @@ export default function Row({ title, movies, onCardClick, showDebug, numbered = 
   if (!movies?.length) return null
 
   return (
-    <section className="group/row relative mb-8 md:mb-12">
+    /* hover:z-30 keeps an expanded card painting over the rows below it —
+       sibling sections otherwise stack in document order */
+    <section className="group/row relative z-0 hover:z-30 mb-8 md:mb-12">
       <h2 className="text-white font-bold text-lg md:text-xl mb-2 px-6 md:px-12">
         {title}
       </h2>

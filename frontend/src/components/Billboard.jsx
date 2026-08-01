@@ -17,7 +17,7 @@ export default function Billboard({ movie, onPlay, onMoreInfo }) {
   const match      = Math.round((movie.ranking_score ?? 0) * 100)
 
   return (
-    <div className="relative w-full h-[56vw] max-h-[80vh] min-h-[420px]">
+    <div className="relative w-full h-[48vw] max-h-[68vh] min-h-[440px]">
       {/* ── Backdrop ──────────────────────────────────────────────────────── */}
       {hasImage ? (
         <img
@@ -50,7 +50,8 @@ export default function Billboard({ movie, onPlay, onMoreInfo }) {
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.1 }}
-        className="absolute bottom-[12%] left-0 px-6 md:px-12 max-w-2xl"
+        /* bottom inset must stay clear of the row overlap App.jsx applies below */
+        className="absolute bottom-[22%] left-0 px-6 md:px-12 max-w-2xl"
       >
         <div className="flex items-center gap-2 mb-3">
           <span className="text-[#E50914] font-black text-sm tracking-[0.2em]">TOP PICK</span>
