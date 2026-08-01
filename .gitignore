@@ -15,7 +15,7 @@ build/
 .claude/
 
 # ── Raw dataset (too large for git — download from grouplens.org/datasets/movielens/25m) ──
-data/
+/data/
 
 # ── Training-only data (not needed for serving) ───────────────────────────────
 ml/data/train.csv
@@ -24,6 +24,9 @@ ml/data/item_genre_vecs.npy
 
 # ── Poster map (regenerate: python ml/scripts/fetch_posters.py) ──────────────
 ml/data/poster_map.json
+
+# ── Cold-start users registered at runtime (not part of the trained artifact set) ──
+ml/data/new_users.json
 
 # ── FAISS indices (numpy retrieval used instead — see recommender.py) ─────────
 ml/embeddings/*.index
