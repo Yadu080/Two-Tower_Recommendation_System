@@ -38,7 +38,7 @@ def main():
 
     # ── Only fetch for movies we actually serve ────────────────────────────
     meta_df  = pd.read_csv(EMB_DIR / "item_meta.csv")
-    links_df = pd.read_csv(ROOT / "data" / "link.csv")
+    links_df = pd.read_csv(ROOT / "data" / "links.csv")
 
     # movieId (int) → tmdbId (int)
     tmdb_map: dict[int, int] = {}
