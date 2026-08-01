@@ -234,8 +234,10 @@ export default function App() {
                   onMoreInfo={setDetailMovie}
                 />
 
-                {/* rows overlap the billboard's lower fade, as in the real thing */}
-                <div className="relative z-10 -mt-[8vw] pb-16">
+                {/* Rows ride up into the billboard's lower fade. Keep this pull
+                    smaller than the billboard's bottom inset or the first row
+                    heading collides with the Play / More Info buttons. */}
+                <div className="relative z-10 -mt-[6vw] pb-16">
                   {rows.map(row => (
                     <Row
                       key={row.key}

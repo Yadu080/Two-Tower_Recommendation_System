@@ -41,9 +41,13 @@
            rounded px-6 py-2.5 transition-colors flex items-center gap-2;
   }
 
-  /* Horizontal carousel track — hides the scrollbar but keeps scrolling */
+  /* Horizontal carousel track — hides the scrollbar but keeps scrolling.
+     Setting overflow-x to auto forces overflow-y to compute to auto too, so
+     the expanded hover panel cannot escape the track and gets clipped. The
+     padding reserves room for it inside the scroll box; the negative margin
+     takes that space back out of the layout so rows stay evenly spaced. */
   .nf-row-track {
-    @apply flex gap-1 overflow-x-auto overflow-y-visible scroll-smooth;
+    @apply flex gap-1 overflow-x-auto scroll-smooth pt-4 pb-44 -mb-36;
     scrollbar-width: none;
     -ms-overflow-style: none;
   }
