@@ -23,7 +23,6 @@ ml/data/val.csv
 ml/data/item_genre_vecs.npy
 
 # ── Poster map (regenerate: python ml/scripts/fetch_posters.py) ──────────────
-ml/data/poster_map.json
 
 # ── Cold-start users registered at runtime (not part of the trained artifact set) ──
 ml/data/new_users.json
