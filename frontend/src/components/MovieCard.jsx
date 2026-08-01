@@ -23,11 +23,10 @@ const GENRE_COLORS = {
   Western:     { c1: '#431407', c2: '#92400e' },
 }
 const DEFAULT_COLORS = { c1: '#1f2937', c2: '#374151' }
-const RANK_BADGE     = ['', '🥇', '🥈', '🥉']
 
 export default function MovieCard({ movie, onClick, showDebug }) {
-  const [hovered, setHovered]       = useState(false)
-  const [imgError, setImgError]     = useState(false)
+  const [hovered, setHovered]   = useState(false)
+  const [imgError, setImgError] = useState(false)
 
   const primaryGenre = movie.genres?.split('|')[0] ?? ''
   const allGenres    = movie.genres?.split('|') ?? []
@@ -36,109 +35,110 @@ export default function MovieCard({ movie, onClick, showDebug }) {
   const year         = movie.title?.match(/\((\d{4})\)/)?.[1] ?? ''
   const titleClean   = movie.title?.replace(/\s*\(\d{4}\)\s*$/, '') ?? movie.title
   const hasPoster    = movie.poster_url && !imgError
+  const match        = Math.round((movie.ranking_score ?? 0) * 100)
 
   return (
     <motion.div
       onHoverStart={() => setHovered(true)}
       onHoverEnd={() => setHovered(false)}
       onClick={() => onClick(movie)}
-      whileHover={{ scale: 1.05, zIndex: 10 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 22 }}
-      className="relative rounded-md overflow-hidden cursor-pointer select-none"
-      style={{ aspectRatio: '2/3' }}
+      animate={{ scale: hovered ? 1.28 : 1, zIndex: hovered ? 40 : 1 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 26, mass: 0.6 }}
+      className="relative cursor-pointer select-none rounded-md"
+      style={{ transformOrigin: 'center bottom' }}
     >
-      {/* ── Poster / fallback background ─────────────────────────────────── */}
-      {hasPoster ? (
-        <img
-          src={movie.poster_url}
-          alt={titleClean}
-          onError={() => setImgError(true)}
-          className="absolute inset-0 w-full h-full object-cover"
-          loading="lazy"
-        />
-      ) : (
-        <>
-          {/* Coloured gradient fallback */}
-          <div className="absolute inset-0"
-               style={{ background: `linear-gradient(160deg, ${colors.c1} 0%, ${colors.c2} 100%)` }} />
-          {/* Decorative initial letter */}
-          <div className="absolute inset-0 flex items-center justify-center text-[6rem] font-black leading-none pointer-events-none"
-               style={{ color: 'rgba(255,255,255,0.07)' }}>
-            {initial}
-          </div>
-        </>
-      )}
-
-      {/* Rank badge top-3 */}
-      {movie.rank <= 3 && (
-        <div className="absolute top-2 left-2 text-lg leading-none z-10 drop-shadow">
-          {RANK_BADGE[movie.rank]}
-        </div>
-      )}
-
-      {/* ── Bottom info strip (always visible) ──────────────────────────── */}
-      <div className="absolute inset-x-0 bottom-0 z-10"
-           style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.96) 55%, transparent 100%)' }}>
-        <div className="px-2.5 pb-2.5 pt-8">
-          <h3 className="text-white font-bold text-xs leading-snug line-clamp-2 mb-1">{titleClean}</h3>
-          <div className="flex items-center gap-1.5 mb-1">
-            {year && <span className="text-[#46d369] text-[10px] font-semibold">{year}</span>}
-            <span className="text-[#b3b3b3] text-[10px]">★ {movie.avg_rating?.toFixed(1)}</span>
-          </div>
-          <div className="flex flex-wrap gap-0.5">
-            {allGenres.slice(0, 2).map(g => (
-              <span key={g} className="text-[9px] px-1 py-0.5 rounded-sm bg-white/10 text-white/80">{g}</span>
-            ))}
-          </div>
-        </div>
+      {/* ── Poster ─────────────────────────────────────────────────────────── */}
+      <div
+        className="relative rounded-md overflow-hidden shadow-lg"
+        style={{ aspectRatio: '2/3' }}
+      >
+        {hasPoster ? (
+          <img
+            src={movie.poster_url}
+            alt={titleClean}
+            onError={() => setImgError(true)}
+            className="absolute inset-0 w-full h-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <>
+            <div
+              className="absolute inset-0"
+              style={{ background: `linear-gradient(160deg, ${colors.c1} 0%, ${colors.c2} 100%)` }}
+            />
+            <div
+              className="absolute inset-0 flex items-center justify-center text-[5rem] font-black leading-none pointer-events-none"
+              style={{ color: 'rgba(255,255,255,0.07)' }}
+            >
+              {initial}
+            </div>
+            {/* title is otherwise invisible on the fallback tile */}
+            <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/90 to-transparent pt-8">
+              <p className="text-white text-[11px] font-bold leading-tight line-clamp-2">{titleClean}</p>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* ── Hover overlay ────────────────────────────────────────────────── */}
+      {/* ── Hover detail panel ─────────────────────────────────────────────── */}
       <AnimatePresence>
         {hovered && (
           <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.15 }}
-            className="absolute inset-0 z-20 flex flex-col justify-end"
-            style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.97) 55%, rgba(0,0,0,0.55) 100%)' }}
+            className="absolute left-0 right-0 top-full rounded-b-md overflow-hidden shadow-2xl"
+            style={{ background: '#181818' }}
           >
-            <div className="p-3 space-y-2">
-              <p className="text-white font-bold text-sm leading-tight">{titleClean}</p>
-              <p className="text-[#E50914] text-xs font-semibold">✦ {movie.why_recommended}</p>
-
-              {/* Match score bar */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="text-[#737373]">Match</span>
-                  <span className="text-[#46d369] font-semibold">{Math.round(movie.ranking_score * 100)}%</span>
-                </div>
-                <div className="h-1 rounded-full overflow-hidden" style={{ background: '#333' }}>
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${movie.ranking_score * 100}%` }}
-                    transition={{ duration: 0.4, ease: 'easeOut' }}
-                    className="h-full rounded-full"
-                    style={{ background: '#46d369' }}
-                  />
-                </div>
+            <div className="p-2.5 space-y-1.5">
+              {/* Control bar */}
+              <div className="flex items-center gap-1.5">
+                <span className="w-6 h-6 rounded-full bg-white flex items-center justify-center">
+                  <svg className="w-3 h-3 text-black" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6 4l14 8-14 8V4z" />
+                  </svg>
+                </span>
+                <span className="w-6 h-6 rounded-full border border-white/40 flex items-center justify-center">
+                  <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                  </svg>
+                </span>
+                <span className="w-6 h-6 rounded-full border border-white/40 flex items-center justify-center">
+                  <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none">
+                    <path d="M7 11v9H4v-9h3zm3 9h7.5a2 2 0 001.94-1.5l1.4-5.6A1.6 1.6 0 0019.3 11H15V6.5A2.5 2.5 0 0012.5 4L10 10v10z"
+                          stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                  </svg>
+                </span>
               </div>
 
-              {/* Debug panel */}
+              <p className="text-white font-bold text-[11px] leading-tight line-clamp-1">{titleClean}</p>
+
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="text-[#46d369] font-semibold">{match}% Match</span>
+                {year && <span className="text-white/70">{year}</span>}
+                <span className="text-white/50">★ {movie.avg_rating?.toFixed(1)}</span>
+              </div>
+
+              {movie.why_recommended && (
+                <p className="text-[#E50914] text-[10px] font-medium leading-snug line-clamp-2">
+                  ✦ {movie.why_recommended}
+                </p>
+              )}
+
+              <p className="text-white/50 text-[9px] leading-snug line-clamp-1">
+                {allGenres.join(' · ')}
+              </p>
+
               {showDebug && (
-                <div className="text-[10px] space-y-0.5 border-t pt-1.5" style={{ borderColor: '#333', color: '#555' }}>
+                <div className="text-[9px] space-y-0.5 border-t pt-1.5"
+                     style={{ borderColor: '#333', color: '#666' }}>
                   <div className="flex justify-between"><span>Embed sim</span><span>{movie.embedding_sim?.toFixed(3)}</span></div>
                   <div className="flex justify-between"><span>Rank score</span><span>{movie.ranking_score?.toFixed(3)}</span></div>
                   <div className="flex justify-between"><span>Popularity</span><span>{movie.popularity?.toFixed(3)}</span></div>
                   <div className="flex justify-between"><span>Latency</span><span>{movie.latency_ms}ms</span></div>
                 </div>
               )}
-
-              {/* All genre tags */}
-              <div className="flex flex-wrap gap-1 pt-0.5">
-                {allGenres.map(g => (
-                  <span key={g} className="text-[9px] px-1.5 py-0.5 rounded-sm bg-white/10 text-white/70">{g}</span>
-                ))}
-              </div>
             </div>
           </motion.div>
         )}
