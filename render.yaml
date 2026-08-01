@@ -11,3 +11,6 @@ services:
         sync: false          # set this manually in the Render dashboard
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: PYTHON_VERSION
+        value: "3.11.9"      # pandas==2.2.2 has no prebuilt wheel for newer Pythons;
+                              # without this pinned, pip builds from source and fails
