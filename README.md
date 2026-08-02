@@ -418,13 +418,6 @@ Two-Tower_Recommendation_System/
 
 ---
 
-## Further reading
-
-[`docs/PROJECT_DEEP_DIVE.md`](docs/PROJECT_DEEP_DIVE.md) covers the architecture
-in depth: every technology from first principles, the alternatives weighed at
-each decision point, how each metric is calculated and what counts as good, and
-an honest account of the project's remaining limitations.
-
 ---
 
 <div align="center">
