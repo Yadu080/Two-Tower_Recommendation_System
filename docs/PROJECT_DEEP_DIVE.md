@@ -275,7 +275,7 @@ and averaged — boosting is sequential and error-correcting.
 **What it is.** Tabular data manipulation — DataFrames with labelled columns,
 grouping, joining, and I/O.
 
-**What it does here.** All preprocessing: loading the 25M-row ratings CSV,
+**What it does here.** All preprocessing: loading the 20M-row ratings CSV,
 filtering users and movies by activity thresholds, computing per-user and
 per-item aggregate statistics, and the temporal train/val split.
 
@@ -291,6 +291,68 @@ An `IndexIVFFlat` partitions vectors into clusters; at query time only the
 nearest `nprobe` clusters are searched, reducing the work from O(N) to roughly
 O(√N).
 
+### SQLAlchemy + PostgreSQL
+
+**What it is.** SQLAlchemy is Python's ORM and SQL toolkit — it maps Python
+classes to database tables and generates SQL from Python expressions.
+PostgreSQL is the relational database itself.
+
+**What it does here.** Two tables. `users` holds credentials, display name,
+genre picks, and the id that user is known by inside the recommendation engine.
+`list_items` holds saved titles, one row each.
+
+**Why the engine id is stored.** Cold-start profiles live in an in-memory dict
+that a restart empties. Persisting the engine's user id lets a returning user's
+profile be replayed into the engine on demand — that is what makes selections
+survive a redeploy.
+
+**Key concepts:**
+- *Declarative models* — subclass `Base`, declare `Column`s, get a table
+- *Session* — a unit of work; changes are staged then committed atomically
+- *`pool_pre_ping`* — tests a pooled connection before handing it out. Free-tier
+  Postgres suspends when idle and drops sockets, so without this the first
+  request after a wake-up fails on a dead connection.
+
+### bcrypt
+
+**What it is.** A password hashing function deliberately designed to be *slow*,
+with a tunable work factor. Speed is the enemy in password hashing: a fast hash
+lets an attacker who steals the database try billions of guesses per second.
+
+**What it does here.** Hashes passwords on registration and verifies them on
+login. The plaintext is never stored, logged, or returned.
+
+**Key concepts:**
+- *Salt* — random per-password data mixed into the hash, so two users with the
+  same password get different hashes and precomputed rainbow tables are useless.
+  bcrypt generates and embeds this automatically.
+- *Work factor* — cost parameter; raise it as hardware gets faster
+- *The 72-byte limit* — bcrypt silently truncates beyond 72 bytes, so a longer
+  password would be equivalent to its first 72. This project rejects those
+  rather than accepting a password that isn't fully used.
+
+### JWT (JSON Web Tokens)
+
+**What it is.** A signed, self-contained token. The server signs a small JSON
+payload with a secret; anyone can read it, but only the holder of the secret can
+produce a valid signature. Verifying requires no database lookup.
+
+**What it does here.** On login the server issues a token containing the user
+id and an expiry. The frontend stores it and sends it as
+`Authorization: Bearer <token>` on every authenticated request.
+
+**Why a header rather than a cookie.** The SPA and API are on different origins
+in production (Vercel and Render). Cross-site cookies bring SameSite rules and
+third-party-cookie restrictions that an `Authorization` header simply does not
+have.
+
+**Key concepts:**
+- *Stateless* — no server-side session store; the token carries its own claims
+- *Signature ≠ encryption* — the payload is readable by anyone, so never put
+  secrets in it
+- *Revocation is the trade-off* — you cannot invalidate a single stateless
+  token before it expires; rotating `JWT_SECRET` invalidates all of them at once
+
 ### React + Vite + Tailwind + Framer Motion
 
 - **React** — component-based UI library. State changes trigger re-renders of
@@ -303,14 +365,19 @@ O(√N).
 - **Framer Motion** — declarative animation for React. Powers the card hover
   scaling, modal transitions, and view changes.
 
-### MovieLens 25M
+### MovieLens 20M
 
-The dataset: 25 million ratings from 162,000 users across 62,000 movies,
+The dataset: 20 million ratings from 138,493 users across 27,278 movies,
 published by GroupLens Research at the University of Minnesota. The standard
 academic benchmark for recommender systems.
 
 After filtering (users with ≥20 ratings, movies with ≥50 ratings, capped at 2M
-interactions), this project trains on **10,523 movies**.
+interactions), this project trains on **10,523 movies across 135,725 users** —
+1,721,649 train interactions and 278,351 held out for validation.
+
+*(An earlier draft of this document described the 25M release. The preprocessing
+logs — 20,000,263 ratings, 27,278 movies — identify the data actually used as
+20M.)*
 
 ---
 
@@ -327,7 +394,7 @@ This section matters in interviews. "Why did you choose X?" is really asking
 | **Neural Collaborative Filtering (NCF)** | One MLP over concatenated user+item features | More expressive per pair, but there is no separable item tower, so you cannot precompute item embeddings. Serving would need 10,523 forward passes per request instead of one. |
 | **Sequential models (SASRec, BERT4Rec)** | Transformer over the user's interaction *sequence* | Genuinely stronger — order matters in real behaviour. But requires per-user interaction histories at inference, far more training compute, and does not fit a "pick genres, get recommendations immediately" flow. |
 | **Graph models (LightGCN, PinSage)** | Message-passing over the user-item bipartite graph | Excellent accuracy, but heavy infrastructure and slow to iterate on for a solo project. |
-| **✅ Two-Tower** | Separate encoders into a shared space | Precomputable item side, content features supported, natural cold-start via content averaging, and the industry-standard retrieval architecture. |
+| **Chosen — Two-Tower** | Separate encoders into a shared space | Precomputable item side, content features supported, natural cold-start via content averaging, and the industry-standard retrieval architecture. |
 
 ### Loss function
 
@@ -335,7 +402,7 @@ This section matters in interviews. "Why did you choose X?" is really asking
 |---|---|
 | **BPR (Bayesian Personalised Ranking)** | Pairwise: one positive vs one sampled negative per step. Works, but far less sample-efficient — InfoNCE gets B² signal from B examples. |
 | **BCE with sampled negatives** | Requires an explicit negative sampling strategy, which becomes its own tuning problem. |
-| **✅ InfoNCE / in-batch negatives** | No explicit sampling needed, B² signal density, and a learnable temperature. Same loss family as CLIP. |
+| **Chosen — InfoNCE / in-batch negatives** | No explicit sampling needed, B² signal density, and a learnable temperature. Same loss family as CLIP. |
 
 ### Re-ranker
 
@@ -344,7 +411,7 @@ This section matters in interviews. "Why did you choose X?" is really asking
 | **LightGBM / XGBoost** | Genuinely better at scale — faster training, histogram-based splits. **This was the original choice**; the code still says "LightGBM" in places. It was replaced because LightGBM's OpenMP runtime segfaults when loaded in the same process as PyTorch on macOS. At 8 features, sklearn's accuracy is equivalent. |
 | **Logistic regression** | Fast and interpretable, but cannot learn feature interactions without manual engineering. |
 | **Neural re-ranker** | Overkill for 8 tabular features. Gradient-boosted trees dominate on small tabular problems. |
-| **✅ sklearn GradientBoostingClassifier** | Handles non-linear interactions, no OpenMP conflict, `joblib` loads cleanly alongside torch. |
+| **Chosen — sklearn GradientBoostingClassifier** | Handles non-linear interactions, no OpenMP conflict, `joblib` loads cleanly alongside torch. |
 
 ### Vector search
 
@@ -352,7 +419,25 @@ This section matters in interviews. "Why did you choose X?" is really asking
 |---|---|
 | **FAISS at serving time** | Benchmarked at 4.5× faster, but same macOS OpenMP conflict with PyTorch. At 10,523 items, brute-force NumPy is already ~0.6ms — the added complexity buys nothing at this scale. |
 | **Managed vector DBs (Pinecone, Weaviate, Milvus)** | Network hop per query, plus cost and operational overhead. Justified at 100M+ vectors, not 10K. |
-| **✅ NumPy brute force** | O(N·D) exact search, no dependencies, no conflicts. **The honest engineering answer: at this scale, approximate search is premature optimisation.** |
+| **Chosen — NumPy brute force** | O(N·D) exact search, no dependencies, no conflicts. **The honest engineering answer: at this scale, approximate search is premature optimisation.** |
+
+### Session management
+
+| Alternative | Why not chosen |
+|---|---|
+| **Server-side sessions (Redis)** | Revocable, and the usual production default. But it needs a second piece of infrastructure, and free-tier Redis has the same expiry problems as free-tier Postgres. |
+| **Cookie sessions** | The SPA and API sit on different origins, so cookies need `SameSite=None; Secure` and run into third-party-cookie restrictions that browsers are tightening. A header sidesteps all of it. |
+| **OAuth / social login** | Better UX and no password handling at all. Rejected because the point was to implement authentication, not delegate it — and it adds provider setup to every deployment. |
+| **Chosen — JWT bearer tokens** | Stateless, no extra infrastructure, cross-origin by default. The trade-off is that a single token can't be revoked before expiry — acceptable at this scale, and rotating the secret invalidates everything at once. |
+
+### Database hosting
+
+| Alternative | Why not chosen |
+|---|---|
+| **Render PostgreSQL** | Same platform as the backend, one less account. But free instances are **deleted after 30 days**, so every account would silently vanish a month in. |
+| **SQLite on disk** | Zero configuration, and it is the local fallback. Useless on Render, whose filesystem is ephemeral — a redeploy would wipe it. |
+| **MongoDB Atlas** | Generous free tier, but the data here is relational (users own list items) and would gain nothing from a document model. |
+| **Chosen — Neon / Supabase Postgres** | Free tiers with no expiry, standard Postgres, and the same SQLAlchemy code either way. |
 
 ### Backend framework
 
@@ -360,7 +445,7 @@ This section matters in interviews. "Why did you choose X?" is really asking
 |---|---|
 | **Flask** | Synchronous WSGI, no built-in validation or type-driven docs. |
 | **Django REST Framework** | Batteries-included ORM/admin/auth — none needed here; this app has no database. |
-| **✅ FastAPI** | Async, Pydantic validation from type hints, auto-generated OpenAPI docs, and the de-facto standard for Python ML serving. |
+| **Chosen — FastAPI** | Async, Pydantic validation from type hints, auto-generated OpenAPI docs, and the de-facto standard for Python ML serving. |
 
 ### Frontend
 
@@ -575,7 +660,7 @@ mind, reads as senior. Being caught unaware does not.
 > interview answer than either hiding it or never having had it. What follows
 > describes the original defect; the fix is noted at the end of each.
 
-### ⚠️ 1. Label leakage in the re-ranker (the 0.98 AUC was not real) — FIXED
+### 1. Label leakage in the re-ranker (the 0.98 AUC was not real) — FIXED
 
 In `ml/scripts/train_ranker.py`, the user embedding used to build training
 features was computed like this:
@@ -625,7 +710,7 @@ disjoint split and expect the real number around 0.75–0.85."* This is one of
 the strongest things you can say in an ML interview. It demonstrates you can
 audit your own work.
 
-### ⚠️ 2. Train/serve skew in the ranker — FIXED
+### 2. Train/serve skew in the ranker — FIXED
 
 Related but distinct. The user embedding was computed **differently** in the
 two settings:
@@ -643,7 +728,7 @@ distributions did not match, so learned thresholds were miscalibrated.
 backend uses, so both paths see an identical feature distribution. The single
 change that fixed the leakage fixed this too.
 
-### ⚠️ 3. The README's "cold-start evaluation" claim — FIXED
+### 3. The README's "cold-start evaluation" claim — FIXED
 
 The README stated the retrieval metrics were *"Evaluated cold-start — no
 interaction history at inference time."* That is not what the code does.
@@ -688,7 +773,7 @@ architecture rather than crashing on a shape mismatch.
 Fixes 1, 2 and 4 change the *code*, not the saved artifacts. Until you retrain,
 the deployed model is still the old one and the metrics are still the old ones.
 
-Requires the raw MovieLens 25M data in `data/`.
+Requires the raw MovieLens 20M data in `data/`.
 
 ```bash
 source venv/bin/activate
@@ -720,12 +805,27 @@ default it to 0, and the backend rebuilds the original architecture. Verified �
 `/health`, warm-start `/recommend`, registration, and cold-start
 recommendations all work unchanged against the pre-fix checkpoint.
 
-### 5. In-memory state is lost on restart
+### 5. In-memory state was lost on restart — FIXED
 
-`engine.new_users` and `_click_log` live in Python dictionaries. Every Render
-redeploy or free-tier spin-down wipes every profile users created. There is a
-`new_users.json` persistence path, but on an ephemeral filesystem it does not
-survive either. A real deployment needs Postgres or Redis.
+`engine.new_users` and `_click_log` lived in Python dictionaries. Every Render
+redeploy or free-tier spin-down wiped every profile users had created. A
+`new_users.json` path existed, but an ephemeral filesystem does not survive a
+redeploy either, so it never helped in production. A returning user's id would
+simply 404 on `/recommend`.
+
+**The fix (applied).** Accounts and saved titles now live in Postgres
+(`backend/db/`), and `engine.ensure_user()` replays a stored profile back into
+the engine on login or on `/auth/me`. The dictionary is still there — it is the
+hot path — but it is now a cache over durable rows rather than the only copy.
+
+Verified by killing the backend mid-session and restarting: the same
+credentials logged in, the genre selection was intact, all saved titles were
+present, and `/recommend` served the rehydrated profile.
+
+**Still in memory, deliberately:** `_click_log` (per-session "already seen"
+exclusions) and the login rate-limit counter. Both reset on redeploy, which is
+acceptable for the former and a real limitation of the latter — the throttle is
+per-process, so it would not hold across a scaled-out deployment.
 
 ### 6. Popularity bias
 
@@ -747,7 +847,7 @@ The order in which this was built, and why each step depends on the previous.
 
 ### Phase 1 — Preprocessing (`preprocess.py`)
 
-1. Load 25M ratings and 62K movies
+1. Load 20M ratings and 27,278 movies
 2. **Filter:** users with ≥20 ratings, movies with ≥50 ratings, cap at 2M
    interactions. This removes noise (users with 2 ratings teach nothing) and
    keeps local training tractable.
@@ -810,10 +910,16 @@ recommendation engine as a module-level singleton.
 
 ### Phase 9 — Frontend (`frontend/`)
 
-React SPA: landing → genre picker → browse. Billboard, carousels, hover-expand
-cards, detail modal.
+React SPA: landing → auth → genre picker → browse ⇄ My List. Billboard,
+carousels, hover-expand cards, detail modal.
 
-### Phase 10 — Deployment
+### Phase 10 — Accounts and persistence (`backend/db/`, `backend/core/auth.py`)
+
+SQLAlchemy models for users and saved titles, bcrypt hashing, JWT issuance, and
+`engine.ensure_user()` to replay a stored profile back into the engine. Postgres
+in production, SQLite locally so the app still runs unconfigured.
+
+### Phase 11 — Deployment
 
 Backend on Render (CPU-only torch to keep the image small), frontend on Vercel
 with `VITE_API_URL` baked in at build time.
@@ -960,6 +1066,66 @@ a vector DB. Ranker feature construction is a Python loop over 500 candidates �
 that should be vectorised. And the model would need periodic retraining with an
 embedding-refresh pipeline, which does not exist today.
 
+### Auth & persistence
+
+**Q: Walk me through what happens when a user logs in.**
+
+The client posts username and password. The server looks up the user, verifies
+the password with bcrypt against the stored hash, and — if it matches — signs a
+JWT containing the user id and an expiry, returning it with the profile. The
+client stores the token and attaches it as an `Authorization: Bearer` header on
+every later request.
+
+One extra step matters here: on login the server also calls
+`engine.ensure_user()`, which replays that account's stored genre profile back
+into the recommendation engine's in-memory dict. Without it, a user whose
+account predates the current process would 404 on `/recommend`, because
+cold-start profiles only ever lived in memory.
+
+**Q: Why bcrypt rather than SHA-256?**
+
+Because SHA-256 is fast, and speed is exactly what you don't want. A GPU can
+compute billions of SHA-256 hashes per second, so a stolen database falls
+quickly to brute force. bcrypt is deliberately slow with a tunable work factor
+you raise as hardware improves, and it salts each password automatically so
+identical passwords produce different hashes and rainbow tables are useless.
+
+**Q: Why JWTs in a header instead of session cookies?**
+
+The frontend is on Vercel and the API is on Render — different origins. Cookies
+across origins need `SameSite=None; Secure` and are increasingly restricted by
+browsers as third-party cookies. An `Authorization` header has none of those
+problems.
+
+The honest trade-off is revocation: a stateless token stays valid until it
+expires, so I can't invalidate one session on demand. Rotating `JWT_SECRET`
+invalidates every token at once, which is the right lever if a secret leaks but
+too blunt for a single user. Server-side sessions in Redis would fix that, at
+the cost of another piece of infrastructure.
+
+**Q: How do you prevent username enumeration?**
+
+A wrong password and a non-existent account return the identical 401 with the
+same message. If they differed, an attacker could probe which usernames exist.
+Login is also rate limited per IP and username — though that counter lives in
+process memory, so it resets on redeploy and wouldn't hold across multiple
+instances.
+
+**Q: Why does My List store the title and poster instead of just the movie id?**
+
+Because the recommender can't be used to look them up again. Opening a title
+logs an implicit signal, and the engine then excludes seen items from future
+responses — so that movie may never appear in a recommendation again. Storing
+only an id would leave rows that could not be rendered. It's denormalised on
+purpose.
+
+**Q: What happens to a guest's saved titles when they sign up?**
+
+They're kept in localStorage while browsing as a guest, then pushed to the
+account on first sign-in — oldest first, so the newest ends up on top — and the
+local copy is cleared. Without that merge the list would appear to reset at the
+exact moment the user created an account to keep it.
+
 ### Reflective
 
 **Q: What would you do differently?**
@@ -969,11 +1135,14 @@ invalidated my headline metric, and the bare ID-embedding user tower that I
 believe was the main cause of weak NDCG — it now takes the genre-preference
 vector I was already computing but never using.
 
-What's still open: in-memory state should be a real datastore, since every
-redeploy wipes user profiles. And I'd add diversity-aware re-ranking — 70%
-feature importance on `popularity × similarity` means the system is strongly
-popularity-biased and buries niche content. Longer term, the honest gap is that
-everything I measure is offline; I log clicks but have never run an A/B test.
+Since then I've also moved user state out of memory into Postgres, which is
+what makes accounts and saved titles survive a redeploy.
+
+What's still open: diversity-aware re-ranking — 70% feature importance on
+`popularity × similarity` means the system is strongly popularity-biased and
+buries niche content. And the honest gap is that everything I measure is
+offline; I log clicks but have never run an A/B test to see whether any of it
+moves real engagement.
 
 **Q: What was the hardest part?**
 
@@ -1010,6 +1179,11 @@ biggest gap between this project and a production system.
 The "Was" column is pre-fix: bare-ID user tower and a leaky ranker split. Both
 were found by auditing this project's own code, which is the story worth
 telling.
+
+Beyond the model, three defects found by running the app rather than reading
+it: a hover panel clipped by its own scroll container, a billboard overlapping
+the first row heading, and a CORS allowlist pinned to one dev port that broke
+authentication whenever Vite picked a different one.
 
 **The single most valuable thing you can do in an interview on this project:**
 volunteer the leakage finding before you are asked. Engineers who audit their
