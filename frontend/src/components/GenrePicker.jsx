@@ -24,9 +24,11 @@ const GENRE_STYLE = {
   Western:     { emoji: '🤠', c1: '#431407', c2: '#92400e' },
 }
 
-export default function GenrePicker({ name, onComplete, onBack }) {
+export default function GenrePicker({ name, onComplete, onBack, initialSelected = [] }) {
   const [allGenres, setAllGenres] = useState([])
-  const [selected, setSelected]   = useState([])
+  // pre-tick what the account already saved, so editing genres starts from
+  // the current selection rather than a blank slate
+  const [selected, setSelected]   = useState(initialSelected)
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState(null)
 
@@ -72,7 +74,9 @@ export default function GenrePicker({ name, onComplete, onBack }) {
           className="mb-8 text-center"
         >
           <h1 className="text-3xl font-bold text-white mb-2">
-            What do you like to watch, {name}?
+            {initialSelected.length > 0
+              ? `Update your genres, ${name}`
+              : `What do you like to watch, ${name}?`}
           </h1>
           <p className="text-[#b3b3b3] text-sm">
             Pick your genres — select as many as you like.

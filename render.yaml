@@ -17,6 +17,12 @@ services:
         sync: false          # set this manually in the Render dashboard
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: JWT_SECRET
+        generateValue: true   # Render generates and stores a strong secret
+      - key: DATABASE_URL
+        sync: false           # set to your Supabase/Neon connection string
+      - key: ALLOWED_ORIGINS
+        sync: false           # extra CORS origins, comma separated (optional)
       - key: PYTHON_VERSION
         value: "3.11.9"      # pandas==2.2.2 has no prebuilt wheel for newer Pythons;
                               # without this pinned, pip builds from source and fails

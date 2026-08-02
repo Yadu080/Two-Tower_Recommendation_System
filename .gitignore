@@ -45,3 +45,6 @@ frontend/.vite/
 .idea/
 *.swp
 *.swo
+
+# ── Local auth database (SQLite fallback; production uses DATABASE_URL) ───────
+recomai.db

@@ -12,7 +12,7 @@ const TILES = [
   '#1b262c','#0a3d62','#1e3799','#4a235a','#2c003e','#3a0ca3',
 ]
 
-export default function LandingPage({ onNameSubmit, onDemoClick }) {
+export default function LandingPage({ onNameSubmit, onDemoClick, onSignIn, onSignUp }) {
   const [name, setName] = useState('')
 
   const submit = () => {
@@ -44,12 +44,20 @@ export default function LandingPage({ onNameSubmit, onDemoClick }) {
           <div className="w-8 h-8 rounded bg-[#E50914] flex items-center justify-center font-bold text-white text-sm">R</div>
           <span className="text-[#E50914] font-black text-2xl md:text-3xl tracking-tight">RECOMAI</span>
         </div>
-        <button
-          onClick={onDemoClick}
-          className="bg-[#E50914] hover:bg-[#B81D24] text-white text-sm font-semibold rounded px-4 py-1.5 transition-colors"
-        >
-          Demo Profiles
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onDemoClick}
+            className="text-sm text-[#b3b3b3] hover:text-white transition-colors hidden sm:block"
+          >
+            Demo Profiles
+          </button>
+          <button
+            onClick={onSignIn}
+            className="bg-[#E50914] hover:bg-[#B81D24] text-white text-sm font-semibold rounded px-4 py-1.5 transition-colors"
+          >
+            Sign In
+          </button>
+        </div>
       </header>
 
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
@@ -91,13 +99,20 @@ export default function LandingPage({ onNameSubmit, onDemoClick }) {
           </div>
 
           <p className="mt-6 text-sm text-[#b3b3b3]">
-            Just exploring?{' '}
+            <button
+              onClick={onSignUp}
+              className="text-white underline hover:text-[#b3b3b3] transition-colors"
+            >
+              Create an account
+            </button>
+            {' '}to keep your picks between visits, or{' '}
             <button
               onClick={onDemoClick}
               className="text-white underline hover:text-[#b3b3b3] transition-colors"
             >
-              Browse demo profiles
+              browse demo profiles
             </button>
+            .
           </p>
         </motion.div>
       </main>

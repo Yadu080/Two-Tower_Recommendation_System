@@ -125,3 +125,47 @@ app.add_middleware(
 | Render build fails on `pip install` | Heavy ML deps exceed free build limits | Check the build log; pin lighter versions or use a paid instance |
 | Posters are plain colour tiles | `TMDB_API_KEY` missing | Add it in Render → Environment |
 | 404 on refresh of a sub-path | SPA rewrite missing | Confirm Root Directory is `frontend` so `vercel.json` is picked up |
+
+---
+
+## 4. Accounts and persistence
+
+Sign-in, saved genre profiles, and My List need a database. Without
+`DATABASE_URL` the backend falls back to a local SQLite file, which is fine
+locally but **not** on Render — its filesystem is ephemeral, so every redeploy
+would wipe every account.
+
+### Pick a Postgres provider
+
+Avoid Render's own free PostgreSQL for anything meant to last: those instances
+are **removed 30 days after creation**. Either of these has a free tier with no
+expiry:
+
+| Provider | Free tier | Notes |
+|---|---|---|
+| [Supabase](https://supabase.com) | 500 MB | Pauses after ~1 week idle, resumes on use |
+| [Neon](https://neon.tech) | 0.5 GB | Auto-suspends, wakes on first query |
+
+Create a project, copy the connection string, and set it on the Render service:
+
+| Key | Value |
+|---|---|
+| `DATABASE_URL` | `postgresql://user:pass@host:5432/dbname` |
+| `JWT_SECRET` | long random string — `render.yaml` generates one automatically |
+| `ALLOWED_ORIGINS` | *(optional)* extra CORS origins, comma separated |
+
+Tables are created automatically on first boot; there is no migration step.
+
+> `JWT_SECRET` signs session tokens. If it changes, every existing token stops
+> validating and users are signed out — which is exactly what you want if it
+> ever leaks, and why it must be stable otherwise. Leaving it unset makes the
+> backend generate a random one per process, so sessions would not survive a
+> restart.
+
+### Notes
+
+* Passwords are hashed with bcrypt; plaintext is never stored or logged.
+* Login is rate limited per IP and username. The counter lives in process
+  memory, so it resets on redeploy and is not shared across instances — enough
+  for a single free-tier container, not for a scaled-out deployment.
+* Treat this as a demo: don't sign up with a password reused from elsewhere.

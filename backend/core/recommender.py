@@ -301,6 +301,32 @@ class RecommendationEngine:
         self._save_new_users()
         return user_id
 
+    def ensure_user(self, user_id: int, name: str, genre_names: list) -> None:
+        """
+        Rehydrate a persisted profile into the in-memory engine.
+
+        Cold-start profiles live in a dict that a restart empties, so a user
+        whose account predates the current process would otherwise 404 on
+        /recommend. Accounts are the durable record; this replays one back into
+        the engine on demand.
+        """
+        if user_id in self.new_users:
+            return
+        self.new_users[user_id] = {"name": name, "genres": genre_names}
+        self._register_new_user_features(user_id, genre_names)
+        # keep the counter ahead of restored ids so new registrations can't collide
+        if user_id >= NEW_USER_BASE:
+            self._new_user_counter = max(self._new_user_counter,
+                                         user_id - NEW_USER_BASE)
+
+    def update_user_genres(self, user_id: int, name: str, genre_names: list) -> None:
+        """Re-point an existing profile at a new genre selection."""
+        self.new_users[user_id] = {"name": name, "genres": genre_names}
+        # drop the stale embedding first — _register_new_user_features writes
+        # the replacement into the same cache slot
+        self.user_cache.cache.pop(user_id, None)
+        self._register_new_user_features(user_id, genre_names)
+
     def _build_ranker_features(self, user_idx: int, item_idx: int,
                                 user_emb: np.ndarray) -> list:
         item_emb  = self.item_embs[item_idx]
