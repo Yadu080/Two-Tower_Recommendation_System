@@ -24,7 +24,8 @@ import pandas as pd
 import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
-from ml.models.two_tower import TwoTowerModel
+from ml.models.two_tower import build_from_checkpoint
+from ml.models.user_features import USER_FEATURE_DIM, build_user_feature_matrix
 
 DATA_DIR  = os.path.join(os.path.dirname(__file__), "../data")
 EMB_DIR   = os.path.join(os.path.dirname(__file__), "../embeddings")
@@ -74,15 +75,16 @@ def main():
 
     # ── Load model + item embeddings ─────────────────────────────────────────
     ckpt = torch.load(os.path.join(MODEL_DIR, "two_tower.pt"), map_location="cpu")
-    model = TwoTowerModel(
-        num_users  = ckpt["num_users"],
-        num_items  = ckpt["num_items"],
-        num_genres = ckpt["num_genres"],
-        embed_dim  = ckpt["embed_dim"],
-        output_dim = ckpt["output_dim"],
-    )
-    model.load_state_dict(ckpt["model_state"])
+    model = build_from_checkpoint(ckpt)
     model.eval()
+    num_user_features = ckpt.get("num_user_features", 0)
+
+    # user content features, indexed by user_idx (empty when the checkpoint
+    # predates them, in which case the tower ignores the argument entirely)
+    users_df = pd.read_csv(os.path.join(DATA_DIR, "user_features.csv"))
+    user_feat_matrix = build_user_feature_matrix(
+        users_df, ckpt["num_users"], USER_FEATURE_DIM
+    ) if num_user_features > 0 else None
 
     item_embs = np.load(os.path.join(EMB_DIR, "item_embeddings.npy"))
     item_embs = np.ascontiguousarray(item_embs, dtype=np.float32)
@@ -118,7 +120,10 @@ def main():
 
             # user embedding from tower
             idx_t = torch.tensor([user_idx], dtype=torch.long)
-            user_emb = model.user_tower(idx_t).numpy()          # (1, 128)
+            feats = None
+            if user_feat_matrix is not None:
+                feats = torch.from_numpy(user_feat_matrix[user_idx]).unsqueeze(0)
+            user_emb = model.user_tower(idx_t, feats).numpy()   # (1, 128)
 
             # numpy retrieval: dot product then argpartition O(N) + sort O(K log K)
             sims = (index @ user_emb[0])                         # (num_items,)

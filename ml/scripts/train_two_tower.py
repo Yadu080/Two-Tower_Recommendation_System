@@ -20,6 +20,7 @@ from torch.utils.data import Dataset, DataLoader
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 from ml.models.two_tower import TwoTowerModel
+from ml.models.user_features import USER_FEATURE_DIM, build_user_feature_matrix
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 DATA_DIR  = os.path.join(os.path.dirname(__file__), "../data")
@@ -41,15 +42,18 @@ POS_THRESHOLD = 3.5   # ratings >= this are treated as positive interactions
 class InteractionDataset(Dataset):
     """
     Loads positive (user, item) pairs.
-    Item features are pre-loaded as numpy arrays indexed by movie_idx
-    for O(1) lookup during training (vs. searching a DataFrame each time).
+    Item and user features are pre-loaded as numpy arrays indexed by
+    movie_idx / user_idx for O(1) lookup during training (vs. searching a
+    DataFrame each time).
     """
     def __init__(self, interactions_df: pd.DataFrame,
-                 item_feat_tensor: torch.Tensor):
+                 item_feat_tensor: torch.Tensor,
+                 user_feat_tensor: torch.Tensor):
         pos = interactions_df[interactions_df["rating"] >= POS_THRESHOLD]
         self.user_idxs  = torch.tensor(pos["user_idx"].values,  dtype=torch.long)
         self.item_idxs  = torch.tensor(pos["movie_idx"].values, dtype=torch.long)
         self.item_feats = item_feat_tensor   # (num_items, 21) pre-built
+        self.user_feats = user_feat_tensor   # (num_users, 19) pre-built
 
     def __len__(self):
         return len(self.user_idxs)
@@ -58,7 +62,8 @@ class InteractionDataset(Dataset):
         uid   = self.user_idxs[idx]
         iid   = self.item_idxs[idx]
         feat  = self.item_feats[iid]         # O(1) tensor index
-        return uid, iid, feat
+        ufeat = self.user_feats[uid]         # O(1) tensor index
+        return uid, iid, feat, ufeat
 
 
 def build_item_feature_tensor(items_df: pd.DataFrame,
@@ -141,6 +146,8 @@ def train():
     val_df   = pd.read_csv(os.path.join(DATA_DIR, "val.csv"))
     items_df = pd.read_csv(os.path.join(DATA_DIR, "item_features.csv"))
 
+    users_df = pd.read_csv(os.path.join(DATA_DIR, "user_features.csv"))
+
     with open(os.path.join(DATA_DIR, "user_id_map.json")) as f:
         user_id_map = json.load(f)
     with open(os.path.join(DATA_DIR, "movie_id_map.json")) as f:
@@ -152,15 +159,20 @@ def train():
 
     print(f"  Users: {NUM_USERS:,}  Items: {NUM_ITEMS:,}", flush=True)
 
-    # ── build item feature tensor (O(1) lookup in Dataset) ───────────────────
+    # ── build feature tensors (O(1) lookup in Dataset) ───────────────────────
     # Keep on CPU — DataLoader workers can't collate GPU/MPS tensors.
     # We move each batch to device inside the training loop instead.
     print("Building item feature tensor …", flush=True)
     item_feat_tensor = build_item_feature_tensor(items_df, NUM_ITEMS, NUM_GENRES)
 
+    print("Building user feature tensor …", flush=True)
+    user_feat_tensor = torch.from_numpy(
+        build_user_feature_matrix(users_df, NUM_USERS, USER_FEATURE_DIM)
+    )
+
     # ── datasets & loaders ────────────────────────────────────────────────────
-    train_ds = InteractionDataset(train_df, item_feat_tensor)
-    val_ds   = InteractionDataset(val_df,   item_feat_tensor)
+    train_ds = InteractionDataset(train_df, item_feat_tensor, user_feat_tensor)
+    val_ds   = InteractionDataset(val_df,   item_feat_tensor, user_feat_tensor)
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE,
                               shuffle=True,  num_workers=NUM_WORKERS, pin_memory=False)
     val_loader   = DataLoader(val_ds,   batch_size=BATCH_SIZE,
@@ -170,7 +182,8 @@ def train():
     print(f"  Val   positives: {len(val_ds):,}",  flush=True)
 
     # ── model & optimiser ─────────────────────────────────────────────────────
-    model = TwoTowerModel(NUM_USERS, NUM_ITEMS, NUM_GENRES, EMBED_DIM, OUTPUT_DIM).to(device)
+    model = TwoTowerModel(NUM_USERS, NUM_ITEMS, NUM_GENRES, EMBED_DIM, OUTPUT_DIM,
+                          num_user_features=USER_FEATURE_DIM).to(device)
     optimiser = torch.optim.Adam(model.parameters(), lr=LR)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=EPOCHS)
 
@@ -185,12 +198,13 @@ def train():
         train_loss, train_recall, steps = 0.0, 0.0, 0
 
         t0 = time.time()
-        for user_idx, item_idx, item_feat in train_loader:
+        for user_idx, item_idx, item_feat, user_feat in train_loader:
             user_idx  = user_idx.to(device)
             item_idx  = item_idx.to(device)
             item_feat = item_feat.to(device)
+            user_feat = user_feat.to(device)
 
-            user_emb, item_emb = model(user_idx, item_idx, item_feat)
+            user_emb, item_emb = model(user_idx, item_idx, item_feat, user_feat)
             loss = infonce_loss(user_emb, item_emb, model.temperature)
 
             optimiser.zero_grad()
@@ -208,11 +222,12 @@ def train():
         model.eval()
         val_loss, val_recall, val_steps = 0.0, 0.0, 0
         with torch.no_grad():
-            for user_idx, item_idx, item_feat in val_loader:
+            for user_idx, item_idx, item_feat, user_feat in val_loader:
                 user_idx  = user_idx.to(device)
                 item_idx  = item_idx.to(device)
                 item_feat = item_feat.to(device)
-                user_emb, item_emb = model(user_idx, item_idx, item_feat)
+                user_feat = user_feat.to(device)
+                user_emb, item_emb = model(user_idx, item_idx, item_feat, user_feat)
                 val_loss   += infonce_loss(user_emb, item_emb, model.temperature).item()
                 val_recall += in_batch_recall(user_emb, item_emb, k=10)
                 val_steps  += 1
@@ -239,6 +254,9 @@ def train():
                 "num_genres": NUM_GENRES,
                 "embed_dim": EMBED_DIM,
                 "output_dim": OUTPUT_DIM,
+                # consumers default this to 0 when absent, so pre-feature
+                # checkpoints still rebuild the architecture they were saved with
+                "num_user_features": USER_FEATURE_DIM,
             }, os.path.join(MODEL_DIR, "two_tower.pt"))
             print(f"  ✓ checkpoint saved (val_loss={avg_val:.4f})", flush=True)
 

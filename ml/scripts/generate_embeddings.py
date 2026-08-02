@@ -13,7 +13,7 @@ import pandas as pd
 import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
-from ml.models.two_tower import TwoTowerModel
+from ml.models.two_tower import build_from_checkpoint
 
 DATA_DIR  = os.path.join(os.path.dirname(__file__), "../data")
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "../models")
@@ -26,14 +26,7 @@ def main():
 
     # ── load checkpoint ───────────────────────────────────────────────────────
     ckpt = torch.load(os.path.join(MODEL_DIR, "two_tower.pt"), map_location=device)
-    model = TwoTowerModel(
-        num_users  = ckpt["num_users"],
-        num_items  = ckpt["num_items"],
-        num_genres = ckpt["num_genres"],
-        embed_dim  = ckpt["embed_dim"],
-        output_dim = ckpt["output_dim"],
-    )
-    model.load_state_dict(ckpt["model_state"])
+    model = build_from_checkpoint(ckpt)
     model.eval()
     print(f"Loaded checkpoint (epoch {ckpt['epoch']})")
 

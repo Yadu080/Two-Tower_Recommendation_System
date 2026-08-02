@@ -114,18 +114,15 @@ class RecommendationEngine:
         print("Loading recommendation engine …", flush=True)
 
         # ── Two-Tower model ────────────────────────────────────────────────────
-        from ml.models.two_tower import TwoTowerModel
+        from ml.models.two_tower import build_from_checkpoint
         ckpt = torch.load(os.path.join(_MODEL_DIR, "two_tower.pt"),
                           map_location="cpu")
-        self.two_tower = TwoTowerModel(
-            num_users  = ckpt["num_users"],
-            num_items  = ckpt["num_items"],
-            num_genres = ckpt["num_genres"],
-            embed_dim  = ckpt["embed_dim"],
-            output_dim = ckpt["output_dim"],
-        )
-        self.two_tower.load_state_dict(ckpt["model_state"])
+        # build_from_checkpoint reads num_user_features from the checkpoint,
+        # defaulting to 0, so checkpoints predating user content features load
+        # into the architecture they were actually trained with.
+        self.two_tower = build_from_checkpoint(ckpt)
         self.two_tower.eval()
+        self.num_user_features = ckpt.get("num_user_features", 0)
 
         # ── Item embeddings (numpy, for feature computation) ──────────────────
         self.item_embs = np.load(os.path.join(_EMB_DIR, "item_embeddings.npy"))
@@ -214,6 +211,25 @@ class RecommendationEngine:
         self._loaded = True
         print("  ✓ Engine loaded", flush=True)
 
+    def _user_feature_vector(self, user_idx: int) -> Optional[torch.Tensor]:
+        """
+        Content features for the UserTower, shaped (1, D), or None when the
+        loaded checkpoint predates user features.
+        """
+        if self.num_user_features <= 0:
+            return None
+        uf = self.user_feat_map.get(user_idx, {})
+        vec = np.array(uf.get("genre_pref", np.zeros(self.num_user_features)),
+                       dtype=np.float32)
+        if vec.shape[0] < self.num_user_features:
+            vec = np.pad(vec, (0, self.num_user_features - vec.shape[0]))
+        else:
+            vec = vec[:self.num_user_features]
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
+        return torch.from_numpy(vec).unsqueeze(0)
+
     def get_user_embedding(self, user_idx: int) -> np.ndarray:
         """Get user embedding with LRU cache."""
         cached = self.user_cache.get(user_idx)
@@ -222,7 +238,8 @@ class RecommendationEngine:
 
         with torch.no_grad():
             idx_t = torch.tensor([user_idx], dtype=torch.long)
-            emb = self.two_tower.user_tower(idx_t).numpy()[0]  # (128,)
+            feats = self._user_feature_vector(user_idx)
+            emb = self.two_tower.user_tower(idx_t, feats).numpy()[0]  # (128,)
 
         self.user_cache.put(user_idx, emb)
         return emb

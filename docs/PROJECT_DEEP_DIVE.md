@@ -562,10 +562,16 @@ is why this deploys at all.
 interviewer finds by reading your code. Raising them yourself, with a fix in
 mind, reads as senior. Being caught unaware does not.
 
-### ⚠️ 1. Label leakage in the re-ranker (the 0.98 AUC is not real)
+> **Status update:** issues 1, 2 and 3 below have since been **fixed** in the
+> code. They are kept here in full because the reasoning is the valuable part —
+> and because "I found this in my own code and fixed it" is a stronger
+> interview answer than either hiding it or never having had it. What follows
+> describes the original defect; the fix is noted at the end of each.
+
+### ⚠️ 1. Label leakage in the re-ranker (the 0.98 AUC was not real) — FIXED
 
 In `ml/scripts/train_ranker.py`, the user embedding used to build training
-features is computed like this:
+features was computed like this:
 
 ```python
 pos_set  = user_pos_items[user_idx]              # items the user liked
@@ -595,13 +601,15 @@ learning "was this item one of the vectors I was just averaged from."
 feature importance and `embedding_similarity` at 23% — **93% of the model's
 decision rests on the two features derived from the leaked quantity.**
 
-**How to fix it:** build the user embedding from a *disjoint* set of
-interactions — e.g. construct it from training-set positives and label against
-validation-set positives, or hold out each positive when computing the
-embedding used to score it (leave-one-out).
+**The fix (applied).** `train_ranker.py` now builds the user representation
+from `UserTower` — the same module the backend serves with, fit on the *train*
+split — and labels against *validation* positives. Nothing about the labels
+touches the feature side any more. Negatives are sampled from items the user
+rated in neither split.
 
 **Expected effect:** AUC will drop substantially — likely into the 0.70–0.85
-range. That is not a regression; that is the honest number appearing.
+range. That is not a regression; that is the honest number appearing. The new
+value is written to `ml/models/ranker_metrics.json` on each training run.
 
 **How to talk about it:** *"The 0.98 AUC is inflated — I have label leakage in
 how I construct the user embedding for ranker training. I'd fix it with a
@@ -609,26 +617,28 @@ disjoint split and expect the real number around 0.75–0.85."* This is one of
 the strongest things you can say in an ML interview. It demonstrates you can
 audit your own work.
 
-### ⚠️ 2. Train/serve skew in the ranker
+### ⚠️ 2. Train/serve skew in the ranker — FIXED
 
-Related but distinct. The user embedding is computed **differently** in the two
-settings:
+Related but distinct. The user embedding was computed **differently** in the
+two settings:
 
-| Setting | How `user_emb` is produced |
-|---------|---------------------------|
+| Setting | How `user_emb` was produced |
+|---------|----------------------------|
 | Ranker training | Mean of the user's positive item embeddings |
 | Serving | `UserTower(user_idx)` forward pass |
 
 The ranker learned a relationship between `emb_sim` and relevance under one
-definition, then encounters a different definition in production. The feature
-distributions do not match, so learned thresholds are miscalibrated. Even after
-fixing the leakage, this should be aligned — training features should be built
-with the same UserTower used at serving time.
+definition, then encountered a different definition in production. The feature
+distributions did not match, so learned thresholds were miscalibrated.
 
-### ⚠️ 3. The README's "cold-start evaluation" claim is inaccurate
+**The fix (applied).** Ranker training now calls the same `UserTower` the
+backend uses, so both paths see an identical feature distribution. The single
+change that fixed the leakage fixed this too.
 
-The README states the retrieval metrics were *"Evaluated cold-start — no
-interaction history at inference time."* This is not what the code does.
+### ⚠️ 3. The README's "cold-start evaluation" claim — FIXED
+
+The README stated the retrieval metrics were *"Evaluated cold-start — no
+interaction history at inference time."* That is not what the code does.
 `evaluate.py` calls:
 
 ```python
@@ -637,20 +647,70 @@ user_emb = model.user_tower(idx_t).numpy()
 
 That is the **learned** embedding for a user who *was* in the training set —
 the opposite of cold-start. The reported Recall/NDCG describe warm-start
-performance on known users. Correct this in the README; an interviewer who
-reads the code will notice.
+performance on known users.
 
-### 4. The user tower has no content features
+**The fix (applied).** The README now describes these as warm-start numbers,
+states the real catalogue size (10,523, not 62K), gives the random baseline for
+context, and notes separately that cold-start is supported at serving time but
+is not what the numbers measure.
+
+### 4. The user tower had no content features — FIXED
 
 The item tower combines a learned ID embedding with genre, rating, and
-popularity features. The user tower is a **bare `nn.Embedding` lookup** — no
+popularity features. The user tower was a **bare `nn.Embedding` lookup** — no
 demographics, no aggregate behaviour, no genre preferences.
 
-This has two consequences: the model can only memorise per-user patterns rather
-than generalise across similar users, and it is likely a primary driver of the
-weak NDCG. Adding the `genre_pref` vector (already computed and sitting in
-`user_features.csv`) to the user tower is the highest-value single improvement
-available.
+Two consequences: the model could only memorise per-user patterns rather than
+generalise across users with similar taste, and this was likely a primary
+driver of the weak NDCG.
+
+**The fix (applied).** `UserTower` now optionally concatenates the normalised
+19-dim `genre_pref` vector — data that was already being computed and stored in
+`user_features.csv`, just unused. `ml/models/user_features.py` centralises how
+that vector is built so training and serving cannot drift apart.
+
+Because this changes the tower's input width, **the checkpoint must be
+regenerated** — see [Retraining](#retraining-after-these-fixes). The checkpoint
+now records `num_user_features`; loaders default it to 0 when absent, so
+checkpoints saved before this change still load into their original
+architecture rather than crashing on a shape mismatch.
+
+### Retraining after these fixes
+
+Fixes 1, 2 and 4 change the *code*, not the saved artifacts. Until you retrain,
+the deployed model is still the old one and the metrics are still the old ones.
+
+Requires the raw MovieLens 25M data in `data/`.
+
+```bash
+source venv/bin/activate
+
+python ml/scripts/preprocess.py           # regenerate train.csv / val.csv
+python ml/scripts/train_two_tower.py      # new UserTower — the slow step
+python ml/scripts/generate_embeddings.py  # item embeddings from new weights
+python ml/scripts/train_ranker.py         # leakage-free ranker
+python ml/scripts/evaluate.py             # honest Recall / NDCG
+```
+
+Order matters — each step consumes the previous step's output. Then commit the
+regenerated artifacts:
+
+```bash
+git add ml/models/two_tower.pt ml/models/ranker.joblib \
+        ml/models/ranker_metrics.json ml/models/eval_results.json \
+        ml/embeddings/item_embeddings.npy
+```
+
+**What to expect.** Ranker AUC should drop from 0.9799 into roughly 0.70–0.85 —
+that is the leakage being removed, not a regression. Recall and NDCG should
+*improve* somewhat from the user-tower content features, though how much is an
+empirical question. Update the README with whatever you actually measure.
+
+**Deploy safety.** You can push the code changes before retraining without
+breaking production: the old checkpoint lacks `num_user_features`, loaders
+default it to 0, and the backend rebuilds the original architecture. Verified —
+`/health`, warm-start `/recommend`, registration, and cold-start
+recommendations all work unchanged against the pre-fix checkpoint.
 
 ### 5. In-memory state is lost on restart
 
@@ -810,16 +870,22 @@ results, NDCG@10 (1.1%) is under half of Recall@10 (2.6%), which specifically
 tells me that when the model finds relevant items it ranks them near the bottom
 of the list — a ranking-quality problem distinct from a retrieval problem.
 
-**Q: Your ranker has 0.98 AUC. Isn't that suspiciously high?**
+**Q: Your ranker had 0.98 AUC. Isn't that suspiciously high?**
 
-Yes — it is inflated by label leakage, and I found it auditing my own code. In
-`train_ranker.py` I build each user's embedding by averaging their positive
-item embeddings, then use those same positives as label-1 rows. The primary
-feature is the dot product between that averaged vector and each item, so
-positives score high essentially by construction. The two features derived from
-it account for 93% of feature importance. The fix is a disjoint split — build
-the embedding from training positives, label against validation positives — and
-I expect the real AUC around 0.75–0.85.
+It was, and it was wrong — I found it auditing my own code. The original
+`train_ranker.py` built each user's embedding by averaging their positive item
+embeddings, then used those same positives as label-1 rows. The primary feature
+is the dot product between that averaged vector and each item, so positives
+scored high essentially by construction, and the two features derived from it
+accounted for 93% of feature importance.
+
+I fixed it two ways at once. The user representation now comes from the
+`UserTower` rather than from averaging label items, and features are built from
+train-split history while labels come from val-split positives — so the item
+being scored is never part of what produced the embedding scoring it. That also
+removed a train/serve skew I had, since the ranker now sees the same
+distribution in training that the backend produces in production. The honest
+AUC is materially lower, which is the point.
 
 **Q: Why is your denominator `min(|relevant|, K)` in Recall?**
 
@@ -890,12 +956,16 @@ embedding-refresh pipeline, which does not exist today.
 
 **Q: What would you do differently?**
 
-Three things, in priority order. First, fix the ranker leakage — it invalidates
-my headline metric. Second, add content features to the user tower; it is
-currently a bare ID embedding, which I believe is the main cause of weak NDCG.
-Third, replace in-memory state with a real datastore. Beyond that I would add
-diversity-aware re-ranking, since 70% feature importance on
-`popularity × similarity` means the system is strongly popularity-biased.
+Two of the things I'd have flagged, I've since fixed: the ranker leakage that
+invalidated my headline metric, and the bare ID-embedding user tower that I
+believe was the main cause of weak NDCG — it now takes the genre-preference
+vector I was already computing but never using.
+
+What's still open: in-memory state should be a real datastore, since every
+redeploy wipes user profiles. And I'd add diversity-aware re-ranking — 70%
+feature importance on `popularity × similarity` means the system is strongly
+popularity-biased and buries niche content. Longer term, the honest gap is that
+everything I measure is offline; I log clicks but have never run an A/B test.
 
 **Q: What was the hardest part?**
 
@@ -920,14 +990,18 @@ biggest gap between this project and a production system.
 
 | Claim | Number | Honest verdict |
 |-------|--------|----------------|
-| Recall@10 | 2.57% | Weak absolute, 27× random — real but underperforming |
-| Recall@100 | 15.72% | Weak-moderate |
-| NDCG@10 | 1.11% | Weak — ranking quality is the bottleneck |
-| Ranker AUC | 0.9799 | **Inflated by leakage — do not quote unqualified** |
+| Recall@10 | 2.57% | Weak absolute, 27× random — real but underperforming. Pre-fix; expect improvement after retraining |
+| Recall@100 | 15.72% | Weak-moderate. Pre-fix |
+| NDCG@10 | 1.11% | Weak — ranking quality is the bottleneck. Pre-fix |
+| Ranker AUC | ~~0.9799~~ | **Was inflated by leakage. Retrain and quote the new number from `ranker_metrics.json`** |
 | FAISS recall | 99.8% @ 4.5× | Good, but not in the serving path |
 | Latency | ~20ms | Genuinely good |
 | Poster coverage | 97.7% | Good |
 | Catalogue | 10,523 films | After filtering from 62K |
+
+All retrieval numbers above predate the user-tower content features and will
+change once you retrain. Do not quote them post-retrain without re-running
+`evaluate.py`.
 
 **The single most valuable thing you can do in an interview on this project:**
 volunteer the leakage finding before you are asked. Engineers who audit their
