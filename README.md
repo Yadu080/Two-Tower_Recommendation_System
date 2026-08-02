@@ -22,7 +22,9 @@
 
 ## What is this?
 
-RECOMAI is a full-stack recommendation system trained on the **MovieLens 25M dataset** — 25 million ratings from 162,000 users across 62,000 movies. The system uses a **Two-Tower neural network** to learn dense representations of both users and movies, retrieves the most relevant candidates in milliseconds, then re-ranks them with a gradient-boosted model for precision.
+RECOMAI is a full-stack recommendation system trained on the **MovieLens 20M dataset** — 20 million ratings from 138,493 users across 27,278 movies. The system uses a **Two-Tower neural network** to learn dense representations of both users and movies, retrieves the most relevant candidates in milliseconds, then re-ranks them with a gradient-boosted model for precision.
+
+After filtering to active users (≥20 ratings) and popular movies (≥50 ratings), and sampling 2M interactions, the trained catalogue is **10,523 films across 135,725 users**.
 
 The frontend mirrors the feel of Netflix — dark, minimal, and fast. A first-time visitor enters their name, picks their favourite genres, and immediately gets personalised recommendations. No account, no password.
 
@@ -58,7 +60,7 @@ The entire pipeline — from user embedding to ranked results — runs in under 
 ## Prerequisites
 - Python 3.11+
 - Node 18+
-- MovieLens 25M dataset — download from [grouplens.org/datasets/movielens/25m](https://grouplens.org/datasets/movielens/25m/), unzip into `data/`
+- MovieLens 20M dataset — download from [grouplens.org/datasets/movielens/20m](https://grouplens.org/datasets/movielens/20m/), unzip into `data/`
 
 ---
 
@@ -192,22 +194,39 @@ The model is trained in a series of discrete phases. Each script is self-contain
 
 Warm-start evaluation: 2,000 sampled users who were present during training,
 scored via their learned `UserTower` embedding against a temporally held-out
-validation split. Catalogue is 10,523 films (after filtering from 62K).
+validation split. Catalogue is 10,523 films.
+
+| Metric | @10 | @50 | @100 |
+|--------|:---:|:---:|:----:|
+| Recall | **11.7%** | 22.7% | 29.5% |
+| NDCG | **7.6%** | 10.0% | 11.2% |
+
+Random selection from 10,523 items would give Recall@10 ≈ 0.095%, so the model
+is roughly **123× better than chance**, landing in the range expected of a
+tuned Two-Tower at this scale.
+
+> Cold-start (genre-only, no history) is supported at serving time via content
+> averaging, but is **not** what these numbers measure.
+
+<details>
+<summary>Earlier results, before the user tower had content features</summary>
+
+The user tower was originally a bare ID embedding, with no access to the genre
+preference vector that preprocessing already computed. It could memorise
+per-user patterns but not generalise across users with similar taste:
 
 | Metric | @10 | @50 | @100 |
 |--------|:---:|:---:|:----:|
 | Recall | 2.6% | 10.2% | 15.7% |
 | NDCG | 1.1% | 2.8% | 3.8% |
 
-Random selection from 10,523 items would give Recall@10 ≈ 0.095%, so the model
-is roughly 27× better than chance — real signal, but below the 5–15% Recall@10
-typical of a well-tuned Two-Tower at this scale. NDCG@10 sitting at under half
-of Recall@10 says relevant titles are being found but ranked near the bottom of
-the list. See [`docs/PROJECT_DEEP_DIVE.md`](docs/PROJECT_DEEP_DIVE.md) for the
-full metric breakdown and known limitations.
+Feeding `genre_pref` into the tower took Recall@10 from 2.6% → 11.7% and
+NDCG@10 from 1.1% → 7.6%. The NDCG gain matters most: previously NDCG@10 sat
+at under half of Recall@10, meaning relevant titles were being found but ranked
+near the bottom of the list. See
+[`docs/PROJECT_DEEP_DIVE.md`](docs/PROJECT_DEEP_DIVE.md) for the full analysis.
 
-> Cold-start (genre-only, no history) is supported at serving time via content
-> averaging, but is **not** what these numbers measure.
+</details>
 
 ### Re-ranker (GBM)
 
@@ -216,15 +235,21 @@ split and labelled against **validation** positives, so no label information
 reaches the feature side and the training distribution matches what the backend
 produces at serving time.
 
-Re-run `python ml/scripts/train_ranker.py` to populate the current numbers —
-they are written to `ml/models/ranker_metrics.json`.
+| | |
+|---|---|
+| Validation AUC | **0.9334** |
+| Training pairs | 43,500 (8,700 positive / 34,800 negative) |
 
-> An earlier version of this script derived each user's embedding by averaging
-> their *validation* positives and then used those same items as the positive
-> rows. Since the leading feature is the dot product against that average,
-> positives scored highly by construction, which inflated the previously
-> reported 0.9799 AUC. The disjoint split above is the fix; expect a lower and
-> more trustworthy figure. Full write-up in
+Current values are written to `ml/models/ranker_metrics.json` by
+`train_ranker.py`.
+
+> **On the previously reported 0.9799.** An earlier version of this script
+> derived each user's embedding by averaging their *validation* positives, then
+> used those same items as the positive rows. Since the leading feature is the
+> dot product against that average, positives scored highly by construction —
+> the model was partly learning "was this item one of the vectors I was just
+> averaged from." Building features from a disjoint split brought AUC to the
+> honest 0.9334 above. Full write-up in
 > [`docs/PROJECT_DEEP_DIVE.md`](docs/PROJECT_DEEP_DIVE.md).
 
 ### FAISS Benchmark
@@ -246,7 +271,7 @@ they are written to `ml/models/ranker_metrics.json`.
 | **Backend** | FastAPI + Uvicorn |
 | **Frontend** | React 18 · Vite · Tailwind CSS · Framer Motion |
 | **Posters** | The Movie Database (TMDb) API |
-| **Dataset** | MovieLens 25M — GroupLens Research |
+| **Dataset** | MovieLens 20M — GroupLens Research |
 | **Deployed on** | Render (backend) · Vercel (frontend) |
 
 ---

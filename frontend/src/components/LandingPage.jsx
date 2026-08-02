@@ -121,7 +121,7 @@ export default function LandingPage({ onNameSubmit, onDemoClick }) {
       {/* ── Footer ────────────────────────────────────────────────────────── */}
       <footer className="relative z-10 text-center py-6 text-xs text-[#737373] space-y-1 bg-black">
         <p>Two-Tower Neural Retrieval · ANN Candidate Generation · GBM Re-ranking</p>
-        <p>Trained on MovieLens 25M · 162K users · 10K films</p>
+        <p>Trained on MovieLens 20M · 136K users · 10.5K films</p>
       </footer>
     </div>
   )

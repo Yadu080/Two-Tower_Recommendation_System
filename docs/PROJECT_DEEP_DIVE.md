@@ -405,20 +405,22 @@ raw numbers are meaningless without context. The honest benchmark is the
 
 | K | Recall | Random baseline | Lift over random |
 |---|--------|-----------------|------------------|
-| 10 | 2.57% | 0.095% | **27×** |
-| 50 | 10.22% | 0.475% | **21×** |
-| 100 | 15.72% | 0.95% | **17×** |
+| 10 | 11.72% | 0.095% | **123×** |
+| 50 | 22.70% | 0.475% | **48×** |
+| 100 | 29.55% | 0.95% | **31×** |
 
-**Verdict: the model has clearly learned real signal — 27× random is not
-noise — but the absolute numbers are weak.** Published Two-Tower results on
-MovieLens-scale data typically reach Recall@10 in the 5–15% range. This model
-underperforms that, for identifiable reasons (see
-[Honest Weaknesses](#6-honest-weaknesses)).
+*(Before user content features were added: 2.57% / 10.22% / 15.72%.)*
 
-Do not oversell this number in an interview. Say: *"27× better than random,
-which confirms the architecture works, but below what I'd expect from a tuned
-Two-Tower — I know why, and here's what I'd fix first."* That answer is far
-stronger than pretending 2.57% is good.
+**Verdict: solid.** 11.72% sits inside the 5–15% Recall@10 range that
+published Two-Tower results on MovieLens-scale data typically reach, at 123×
+random.
+
+The more interesting story is the delta. The original bare-ID user tower
+managed 2.57%; adding the genre-preference vector it already had access to took
+it to 11.72% — a 4.6× improvement from feeding the model content it was
+already computing and discarding. That is a better interview answer than the
+number itself: it shows you diagnosed *why* a model underperformed and fixed
+the cause.
 
 ---
 
@@ -450,18 +452,21 @@ the 0.10–0.40 range depending on domain.
 
 **This project's results:**
 
-| K | NDCG |
-|---|------|
-| 10 | 0.0111 |
-| 50 | 0.0281 |
-| 100 | 0.0376 |
+| K | NDCG | Before user features |
+|---|------|----------------------|
+| 10 | 0.0758 | 0.0111 |
+| 50 | 0.1004 | 0.0281 |
+| 100 | 0.1121 | 0.0376 |
 
-**Verdict: weak, and notably low even relative to this project's own Recall.**
-NDCG@10 (1.1%) is less than half of Recall@10 (2.57%), which tells you
-something specific: **when the model does find a relevant item, it tends to
-rank it near the bottom of the top-10 rather than the top.** The retrieval is
-finding signal but ordering it poorly — exactly what you would expect from a
-model whose user tower is a pure ID embedding with no behavioural features.
+**Verdict: reasonable, and the metric that improved most.** NDCG@10 went from
+0.0111 to 0.0758 — a 6.8× gain, larger than Recall's 4.6×.
+
+That gap is diagnostic. Before, NDCG@10 sat at *under half* of Recall@10,
+meaning the model found relevant items but buried them near the bottom of the
+top-10. Now NDCG@10 (0.0758) is roughly 65% of Recall@10 (0.1172) — relevant
+titles are not just being retrieved, they are being ranked near the top. Giving
+the user tower content features fixed an ordering problem, not just a retrieval
+one.
 
 ---
 
@@ -487,11 +492,13 @@ your model is inverted.
 | 0.8–0.9 | Strong |
 | 0.9+ | Excellent — **or leakage** |
 
-**This project's result: 0.9799.**
+**This project's result: 0.9334** (was 0.9799 before the leakage fix).
 
-**Verdict: this number is inflated by label leakage and should not be quoted
-without qualification.** See the next section — this is the single most
-important thing to understand before an interview.
+**Verdict: strong, and now honest.** The drop from 0.9799 is the leakage being
+removed — see [Honest Weaknesses](#6-honest-weaknesses). 0.9334 is a genuinely
+good AUC for a re-ranker, and it is now earned: features come from the actual
+trained `UserTower`, which independently demonstrates real signal via the
+retrieval metrics above, rather than from averaging the labels being scored.
 
 ---
 
@@ -607,9 +614,10 @@ split — and labels against *validation* positives. Nothing about the labels
 touches the feature side any more. Negatives are sampled from items the user
 rated in neither split.
 
-**Expected effect:** AUC will drop substantially — likely into the 0.70–0.85
-range. That is not a regression; that is the honest number appearing. The new
-value is written to `ml/models/ranker_metrics.json` on each training run.
+**Measured effect:** AUC moved from 0.9799 to **0.9334** after retraining. Not
+a regression — that gap is the leakage leaving. Still a strong re-ranker, but
+now the number is defensible. Written to `ml/models/ranker_metrics.json` on
+each training run.
 
 **How to talk about it:** *"The 0.98 AUC is inflated — I have label leakage in
 how I construct the user embedding for ranker training. I'd fix it with a
@@ -988,20 +996,20 @@ biggest gap between this project and a production system.
 
 ## Quick Reference
 
-| Claim | Number | Honest verdict |
-|-------|--------|----------------|
-| Recall@10 | 2.57% | Weak absolute, 27× random — real but underperforming. Pre-fix; expect improvement after retraining |
-| Recall@100 | 15.72% | Weak-moderate. Pre-fix |
-| NDCG@10 | 1.11% | Weak — ranking quality is the bottleneck. Pre-fix |
-| Ranker AUC | ~~0.9799~~ | **Was inflated by leakage. Retrain and quote the new number from `ranker_metrics.json`** |
-| FAISS recall | 99.8% @ 4.5× | Good, but not in the serving path |
-| Latency | ~20ms | Genuinely good |
-| Poster coverage | 97.7% | Good |
-| Catalogue | 10,523 films | After filtering from 62K |
+| Claim | Number | Was | Honest verdict |
+|-------|--------|-----|----------------|
+| Recall@10 | 11.72% | 2.57% | Solid — 123× random, inside the expected 5–15% band |
+| Recall@100 | 29.55% | 15.72% | Solid |
+| NDCG@10 | 0.0758 | 0.0111 | Reasonable — 6.8× gain, ordering problem fixed |
+| Ranker AUC | 0.9334 | 0.9799 | Strong **and** honest; the drop is leakage leaving |
+| FAISS recall | 99.8% @ 4.5× | — | Good, but not in the serving path |
+| Latency | ~20ms | — | Genuinely good |
+| Poster coverage | 97.7% | — | Good |
+| Catalogue | 10,523 films | — | Filtered from MovieLens 20M's 27,278 |
 
-All retrieval numbers above predate the user-tower content features and will
-change once you retrain. Do not quote them post-retrain without re-running
-`evaluate.py`.
+The "Was" column is pre-fix: bare-ID user tower and a leaky ranker split. Both
+were found by auditing this project's own code, which is the story worth
+telling.
 
 **The single most valuable thing you can do in an interview on this project:**
 volunteer the leakage finding before you are asked. Engineers who audit their
