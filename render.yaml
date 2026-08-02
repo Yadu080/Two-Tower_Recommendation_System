@@ -3,7 +3,13 @@ services:
     name: recomai-backend
     runtime: python
     rootDir: .
-    buildCommand: pip install -r requirements.txt
+    # Plain `pip install torch` pulls the full CUDA build (nvidia-cublas,
+    # nvidia-cudnn, triton, ...) even on a CPU-only box — that's a huge
+    # amount of extra disk I/O on Render's throttled free tier and was
+    # pushing startup past the port-scan timeout. Install CPU-only torch
+    # first so the later `-r requirements.txt` sees the pin already
+    # satisfied and skips reinstalling it.
+    buildCommand: pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cpu && pip install -r requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     plan: free
     envVars:
@@ -11,3 +17,6 @@ services:
         sync: false          # set this manually in the Render dashboard
       - key: PYTHONUNBUFFERED
         value: "1"
+      - key: PYTHON_VERSION
+        value: "3.11.9"      # pandas==2.2.2 has no prebuilt wheel for newer Pythons;
+                              # without this pinned, pip builds from source and fails

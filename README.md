@@ -45,7 +45,7 @@ The frontend mirrors the feel of Netflix — dark, minimal, and fast. A first-ti
 The recommendation pipeline runs in two stages every time a user requests their feed.
 
 **Stage 1 — Retrieval**
-The user's embedding (a 128-dimensional vector learned during training) is compared against every item in the catalogue using a dot-product similarity. The top 500 most similar movies are selected as candidates. For users who are brand new, a cold-start embedding is synthesised on the fly by averaging the item vectors of all movies matching their chosen genres.
+The user's embedding (a 128-dimensional vector combining a learned ID embedding with their normalised genre-preference vector) is compared against every item in the catalogue using a dot-product similarity. The top 500 most similar movies are selected as candidates. For users who are brand new, a cold-start embedding is synthesised on the fly by averaging the item vectors of all movies matching their chosen genres.
 
 **Stage 2 — Re-ranking**
 Those 500 candidates are passed through a gradient-boosted classifier that scores each (user, movie) pair using 8 engineered features — embedding similarity, average rating, popularity, genre overlap, and cross-terms. The top 10 results are returned, each annotated with a human-readable explanation of *why* it was recommended.
@@ -178,9 +178,9 @@ The model is trained in a series of discrete phases. Each script is self-contain
 |:-----:|--------|-------------|
 | 1 | `preprocess.py` | Raw CSVs → temporal train/val split, contiguous ID maps, genre feature vectors |
 | 2 | `train_two_tower.py` | InfoNCE loss with in-batch negatives, learnable temperature, MPS/CUDA/CPU support |
-| 3 | `generate_embeddings.py` | Runs all 62K items through the trained ItemTower, saves as `item_embeddings.npy` |
-| 4 | `build_faiss_index.py` | Builds an IVF index — 4.5× faster retrieval at 99.8% recall vs brute-force |
-| 5 | `train_ranker.py` | Trains the GBM re-ranker on 42K (user, item) interaction pairs |
+| 3 | `generate_embeddings.py` | Runs all catalogue items through the trained ItemTower, saves as `item_embeddings.npy` |
+| 4 | `build_faiss_index.py` | Builds an IVF index — 4.5× faster retrieval at 99.8% recall vs brute-force (benchmark only; serving uses NumPy) |
+| 5 | `train_ranker.py` | Trains the GBM re-ranker — user embedding from train history, labels from val positives |
 | 6 | `evaluate.py` | Recall@K and NDCG@K over 2,000 held-out users |
 | 7 | `fetch_posters.py` | Pulls poster images from TMDb API for the full catalogue |
 
@@ -190,20 +190,42 @@ The model is trained in a series of discrete phases. Each script is self-contain
 
 ### Retrieval (Two-Tower)
 
-Evaluated cold-start — no interaction history at inference time, 62K item catalogue.
+Warm-start evaluation: 2,000 sampled users who were present during training,
+scored via their learned `UserTower` embedding against a temporally held-out
+validation split. Catalogue is 10,523 films (after filtering from 62K).
 
 | Metric | @10 | @50 | @100 |
 |--------|:---:|:---:|:----:|
 | Recall | 2.6% | 10.2% | 15.7% |
 | NDCG | 1.1% | 2.8% | 3.8% |
 
+Random selection from 10,523 items would give Recall@10 ≈ 0.095%, so the model
+is roughly 27× better than chance — real signal, but below the 5–15% Recall@10
+typical of a well-tuned Two-Tower at this scale. NDCG@10 sitting at under half
+of Recall@10 says relevant titles are being found but ranked near the bottom of
+the list. See [`docs/PROJECT_DEEP_DIVE.md`](docs/PROJECT_DEEP_DIVE.md) for the
+full metric breakdown and known limitations.
+
+> Cold-start (genre-only, no history) is supported at serving time via content
+> averaging, but is **not** what these numbers measure.
+
 ### Re-ranker (GBM)
 
-| | |
-|---|---|
-| Validation AUC | **0.9799** |
-| Most important feature | `popularity × similarity` — 70% weight |
-| Second feature | `embedding_similarity` — 23% weight |
+Ranker features are built from the `UserTower` embedding fit on the **train**
+split and labelled against **validation** positives, so no label information
+reaches the feature side and the training distribution matches what the backend
+produces at serving time.
+
+Re-run `python ml/scripts/train_ranker.py` to populate the current numbers —
+they are written to `ml/models/ranker_metrics.json`.
+
+> An earlier version of this script derived each user's embedding by averaging
+> their *validation* positives and then used those same items as the positive
+> rows. Since the leading feature is the dot product against that average,
+> positives scored highly by construction, which inflated the previously
+> reported 0.9799 AUC. The disjoint split above is the fix; expect a lower and
+> more trustworthy figure. Full write-up in
+> [`docs/PROJECT_DEEP_DIVE.md`](docs/PROJECT_DEEP_DIVE.md).
 
 ### FAISS Benchmark
 
@@ -272,6 +294,7 @@ Two-Tower_Recommendation_System/
 ├── ml/
 │   ├── models/
 │   │   ├── two_tower.py            ← model architecture
+│   │   ├── user_features.py        ← shared user-feature builder
 │   │   ├── two_tower.pt            ← trained weights
 │   │   └── ranker.joblib           ← trained re-ranker
 │   │
@@ -303,15 +326,24 @@ Two-Tower_Recommendation_System/
 │
 ├── frontend/
 │   └── src/
-│       ├── App.jsx                 ← view state machine
+│       ├── App.jsx                 ← view state machine + row derivation
 │       ├── api.js                  ← fetch wrappers
 │       └── components/
 │           ├── LandingPage.jsx
 │           ├── GenrePicker.jsx
+│           ├── Navbar.jsx
+│           ├── Billboard.jsx       ← hero for the top-ranked title
+│           ├── Row.jsx             ← horizontal carousel
 │           ├── MovieCard.jsx
+│           ├── DetailModal.jsx     ← expanded view + model signals
 │           └── DemoDrawer.jsx
 │
+├── docs/
+│   └── PROJECT_DEEP_DIVE.md        ← architecture, metrics, limitations
+│
 ├── render.yaml                     ← Render deployment config
+├── runtime.txt                     ← pins Python 3.11 for Render
+├── DEPLOYMENT.md
 ├── requirements.txt
 └── README.md
 ```
